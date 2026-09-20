@@ -9,7 +9,7 @@ export async function GET() {
     return Response.json({
       ok: false,
       configured: false,
-      message: "Forge is ready for Hermes, but HERMES_API_URL and HERMES_API_KEY are not configured.",
+      message: "Hermes runtime is not configured.",
     });
   }
 
@@ -22,15 +22,15 @@ export async function GET() {
     return Response.json({
       ok: true,
       configured: true,
-      health,
-      capabilities,
+      status: health?.status || health?.ok || "reachable",
+      runsApiAvailable: Boolean(capabilities),
     });
   } catch (error) {
     return Response.json(
       {
         ok: false,
         configured: true,
-        error: "Forge could not reach the configured Hermes runtime.",
+        error: "Configured Hermes runtime is unreachable.",
         status: error?.status || null,
       },
       { status: 502 }
