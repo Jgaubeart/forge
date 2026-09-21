@@ -134,7 +134,31 @@ otherwise.
 The ported UI renders these validated domain objects — History and Mission Bay
 read the canonical event stream, and the result renderers contain no inference.
 
-## Phase 5 — Supabase persistence and first-workspace onboarding (implemented, NOT APPLIED)
+## Phase 5 — Supabase persistence and first-workspace onboarding
+
+Status: **migration 004 is applied to the real Forge project** (`forge`,
+ref `orxprwiqjtnpgrrheylr`), whose migration history now reads `forge_core`,
+`harden_forge_rls`, `forge_fleet`, `forge_workspace_and_mission_persistence`.
+Live counts after applying: organisations 0, workspaces 0, workspace
+memberships 0, tasks 0, run_events 0, approvals 0, agents 9, fleets 1,
+fleet_members 3 — a clean, empty Forge database with the workforce seeded and no
+test data.
+
+Verified live: the schema applied, the workforce rows are present, and nothing in
+the unrelated `portal` project was touched. Still to verify against Forge once
+the app is connected: onboarding creating an organisation and both memberships,
+a mission persisting across a refresh, History reading its events, and a second
+account being unable to read the first workspace.
+
+Security follow-up (same phase): the advisor flagged
+`public.handle_new_user()` as a SECURITY DEFINER function callable by `anon` and
+`authenticated`. It is the signup trigger function, so migration
+`005_revoke_handle_new_user_execute.sql` revokes direct EXECUTE from `public`,
+`anon`, and `authenticated` without changing the function: PostgreSQL checks
+EXECUTE when a trigger is created rather than when it fires, and the owner keeps
+its own privileges, so signup is unaffected. Outstanding **project setting**
+(not schema): Supabase's leaked-password protection is disabled — that is an Auth
+setting in the dashboard, recorded here rather than solved in SQL.
 
 Status: the code and the migration are written and tested; **nothing has been
 applied to the Forge database** and live verification has not happened. Phase 5

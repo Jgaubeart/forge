@@ -469,3 +469,29 @@ test("the migration is additive, RLS-scoped, and does not let browsers write eve
   assert.match(sql, /with check \(created_by = \(select auth\.uid\(\)\)\)/);
   assert.match(sql, /with check \(user_id = \(select auth\.uid\(\)\)\)/);
 });
+
+test("the security follow-up revokes direct execution of the signup trigger only", () => {
+  const sql = read("supabase/migrations/005_revoke_handle_new_user_execute.sql")
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+
+  for (const role of ["public", "anon", "authenticated"]) {
+    assert.match(
+      sql,
+      new RegExp(`revoke execute on function public\\.handle_new_user\\(\\) from ${role};`),
+      `handle_new_user should not be executable by ${role}`
+    );
+  }
+
+  // The function itself is untouched, and no other object is affected.
+  assert.equal(/create or replace function/i.test(sql), false, "behaviour must not change");
+  assert.equal(/alter function/i.test(sql), false);
+  assert.equal(/drop function/i.test(sql), false);
+  assert.equal(/revoke .* on table/i.test(sql), false);
+  assert.equal(
+    (sql.match(/revoke execute/g) ?? []).length,
+    3,
+    "exactly three revokes, one per role"
+  );
+});
