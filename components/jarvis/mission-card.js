@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useState } from "react";
 
 import { AgentDot, AgentFeedName } from "./agent-sigil";
 import { MissionResult, WorkerRow } from "./results";
@@ -15,7 +15,20 @@ import { APPROVAL_STATE, actionLanguage } from "@/lib/forge/missions";
 // only change local state — no runtime, no service, and the card says so.
 const FEED_LIMIT = 8;
 
-export function MissionCard({ mission }) {
+// Hooks must be called unconditionally, so a card without a server action still
+// gets a function. It is never submitted: without an action the card renders the
+// local fixture button instead of a form.
+async function noCancelAction() {
+  return null;
+}
+
+export function MissionCard({ mission, cancelAction = null }) {
+  // With a server action the cancel is durable; without one (the fixture preview
+  // route) the button only changes this card, which is what a fixture can do.
+  const [cancelState, cancel, cancelling] = useActionState(
+    cancelAction ?? noCancelAction,
+    null
+  );
   const [approval, setApproval] = useState(mission.approval ?? null);
   const [showAll, setShowAll] = useState(false);
   const [stopped, setStopped] = useState(mission.status === "cancelled");
@@ -140,7 +153,17 @@ export function MissionCard({ mission }) {
         </div>
       ) : null}
 
-      {mission.status === "cancelled" ? (
+      {cancelState?.message ? (
+        <div
+          className="jv-notice"
+          data-tone={cancelState.ok ? undefined : "wait"}
+          style={{ marginTop: 9 }}
+        >
+          {cancelState.message}
+        </div>
+      ) : null}
+
+      {mission.status === "cancelled" || cancelState?.ok ? (
         <div className="jv-notice" style={{ marginTop: 9 }}>
           Cancelled. History and partial work are preserved.
         </div>
@@ -156,14 +179,28 @@ export function MissionCard({ mission }) {
       <footer className="jv-mission-foot">
         <span className="jv-mono">{mission.kind}</span>
         {mission.cancellationAllowed && !stopped && status !== "completed" ? (
-          <button
-            className="jv-rbtn"
-            type="button"
-            title="Stop this mission"
-            onClick={() => setStopped(true)}
-          >
-            ■
-          </button>
+          cancelAction ? (
+            <form action={cancel}>
+              <input type="hidden" name="missionId" value={mission.id} />
+              <button
+                className="jv-rbtn"
+                type="submit"
+                title="Stop this mission"
+                disabled={cancelling}
+              >
+                ■
+              </button>
+            </form>
+          ) : (
+            <button
+              className="jv-rbtn"
+              type="button"
+              title="Stop this mission"
+              onClick={() => setStopped(true)}
+            >
+              ■
+            </button>
+          )
         ) : null}
       </footer>
     </article>

@@ -8,6 +8,7 @@ import {
   agentsByDepartment,
   agentsForMissionKind,
 } from "@/lib/forge/agents";
+import { getForgePersistence } from "@/lib/forge/persistence";
 
 // The workforce, rendered from the real catalog.
 //
@@ -30,8 +31,18 @@ function stateLabel(state) {
   }
 }
 
-export default function FleetPage() {
+export default async function FleetPage() {
   const departments = [...agentsByDepartment().entries()];
+
+  // Durable state (does the row exist, is it active, may it delegate) is shown
+  // separately. The catalog stays the source of identity and behaviour.
+  let durable = [];
+  try {
+    const persistence = await getForgePersistence();
+    durable = await persistence.agents.listDurable();
+  } catch {
+    durable = [];
+  }
 
   return (
     <>
@@ -163,6 +174,38 @@ export default function FleetPage() {
             subset of the Fleet later, and the canonical order stays SCOUT →
             FORGE → SAGE.
           </p>
+        </JarvisSection>
+
+        <JarvisSection
+          title="Durable agent state"
+          meta={`${durable.length} rows`}
+          action={
+            <span className="jv-meta">
+              migration 004 seeds the built-in slugs
+            </span>
+          }
+        >
+          {durable.length > 0 ? (
+            <ol className="jv-feed" style={{ maxHeight: "none" }}>
+              {durable.map((row) => (
+                <li key={row.id}>
+                  <b style={{ color: "#a7c4b6" }}>{row.slug}</b>
+                  <span className="lbl">
+                    {row.name}
+                    {row.isBuiltIn ? " · built-in" : " · workspace agent"}
+                    {row.isActive ? "" : " · inactive"}
+                    {row.delegationAllowed ? " · may delegate" : ""}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="jv-sub">
+              No agent rows are readable yet. The catalog above is the canonical
+              definition; the database rows exist so missions can hold durable
+              references to a lead agent.
+            </p>
+          )}
         </JarvisSection>
       </div>
     </>

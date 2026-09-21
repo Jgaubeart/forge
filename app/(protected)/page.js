@@ -1,49 +1,81 @@
 import { MissionCard } from "@/components/jarvis/mission-card";
 import { JarvisHud } from "@/components/jarvis/hud";
+import { JarvisOnboarding } from "@/components/jarvis/onboarding";
 import { AgentDot } from "@/components/jarvis/agent-sigil";
 import {
   JarvisEmpty,
-  JarvisFixtureNotice,
   JarvisHeading,
   JarvisSection,
 } from "@/components/jarvis/shell";
-import { FIXTURE_MISSIONS, FLEET, fixtureKindKeys } from "@/lib/jarvis-fixtures";
+import { expiryWord, feedLine, clockOf } from "@/components/jarvis/mission-view";
+import { requireUser } from "@/lib/auth";
+import { FLEET, agentBySlug } from "@/lib/forge/agents";
 import { MISSION_KINDS, isActiveMission, isTerminalMission } from "@/lib/forge/missions";
-import { clockOf, expiryWord, feedLine } from "@/components/jarvis/mission-view";
+import { loadMissionBayState } from "@/lib/forge/persistence/state.js";
+import { createWorkspaceAction } from "./onboarding/actions";
+import { startMissionAction, cancelMissionAction } from "./missions/actions";
 
-// Mission Bay, ported from the reference viewer: the mission dock is the centre
-// of the screen, the Fleet reads as a team, approvals live inside the mission
-// that staged them, and the command bar sits where the reference HUD does.
-// Mission kinds come from the canonical mission catalog.
-const KINDS = MISSION_KINDS.map((kind) => ({
-  key: kind.kind,
-  icon: kind.icon,
-  name: kind.title,
-  needsBrief: kind.brief.required,
-}));
+// Mission Bay on durable state.
+//
+// Three honest states, never confused with each other:
+//   - the database cannot be reached      -> say so
+//   - signed in with no workspace         -> one-step onboarding
+//   - a workspace with missions (or none) -> the dock
+export default async function MissionBayPage() {
+  const user = await requireUser();
+  const state = await loadMissionBayState(user.id);
 
-export default function MissionBayPage() {
-  const active = FIXTURE_MISSIONS.filter(
-    (mission) => isActiveMission(mission.status) && !isTerminalMission(mission.status)
-  );
-  const closed = FIXTURE_MISSIONS.filter((mission) => isTerminalMission(mission.status));
-  const awaiting = FIXTURE_MISSIONS.filter(
-    (mission) => mission.approval?.state === "pending"
-  );
+  if (!state.ok) {
+    return (
+      <>
+        <JarvisHeading
+          eyebrow="Mission Bay"
+          title="Mission Bay"
+          sub="Forge keeps its missions in Supabase."
+        />
+        <div className="jv-notice wait" style={{ marginTop: 12 }}>
+          <span className="jv-mono">offline</span>
+          Forge could not reach its database, so no mission state is shown. The
+          connection and the migration both need to be in place before Mission Bay
+          is useful. Nothing here is a fixture.
+        </div>
+      </>
+    );
+  }
+
+  if (!state.membership?.workspace) {
+    return <JarvisOnboarding action={createWorkspaceAction} />;
+  }
+
+  const missions = state.missions;
+  const active = missions.filter((mission) => isActiveMission(mission.status));
+  const closed = missions.filter((mission) => isTerminalMission(mission.status));
+  const awaiting = missions.filter((mission) => mission.approval?.state === "pending");
+
+  const kinds = MISSION_KINDS.map((kind) => ({
+    key: kind.kind,
+    icon: kind.icon,
+    name: kind.title,
+    needsBrief: kind.brief.required,
+  }));
+
+  const recentEvents = missions
+    .flatMap((mission) => mission.events.slice(-2).map((event) => ({ ...feedLine(event, mission), missionId: mission.id })))
+    .slice(-10);
 
   return (
     <>
       <JarvisHeading
         eyebrow="Mission Bay"
         title="Mission Bay"
-        sub="Ask for an outcome. Jarvis coordinates the workers, shows its work, and stops for your word before anything leaves the building."
-        meta={`${active.length} active · ${awaiting.length} awaiting your word · ${fixtureKindKeys().length} mission kinds`}
+        sub="Ask for an outcome. Forge records the mission durably; the runtime that will work it is not connected yet."
+        meta={`${state.membership.workspace.name} · ${active.length} active · ${awaiting.length} awaiting your word`}
         actions={
           <div className="jv-legend">
             {FLEET.members.map((member) => (
-              <span key={member.name}>
-                <AgentDot slug={member.slug} live={member.slug === "scout"} />
-                {member.name}
+              <span key={member.slug}>
+                <AgentDot slug={member.slug} />
+                {agentBySlug(member.slug)?.name ?? member.slug.toUpperCase()}
               </span>
             ))}
           </div>
@@ -51,11 +83,18 @@ export default function MissionBayPage() {
       />
 
       <div className="jv-stack" style={{ marginTop: 12 }}>
-        <JarvisFixtureNotice />
+        {!state.hasTrustedWrites ? (
+          <div className="jv-notice wait">
+            <span className="jv-mono">config</span>
+            Mission events and approvals need SUPABASE_SERVICE_ROLE_KEY on the
+            server. Missions still save; their history will be empty until it is set.
+          </div>
+        ) : null}
 
         <JarvisHud
-          kinds={KINDS}
+          kinds={kinds}
           counts={{ missions: active.length, awaiting: awaiting.length }}
+          startAction={startMissionAction}
         />
 
         <div className="jv-cols">
@@ -64,37 +103,50 @@ export default function MissionBayPage() {
               {active.length > 0 ? (
                 <div className="jv-dock">
                   {active.map((mission) => (
-                    <MissionCard key={mission.id} mission={mission} />
+                    <MissionCard
+                      key={mission.id}
+                      mission={mission}
+                      cancelAction={cancelMissionAction}
+                    />
                   ))}
                 </div>
               ) : (
-                <JarvisEmpty title="No missions running" text="Deploy one from the command bar." />
+                <JarvisEmpty
+                  title="No missions yet"
+                  text="Dispatch one from the command bar. It is saved as queued — no runtime is connected, so nothing starts on its own."
+                />
               )}
             </JarvisSection>
 
-            <JarvisSection title="Recently closed" meta={`${closed.length} missions`}>
-              <div className="jv-dock">
-                {closed.map((mission) => (
-                  <MissionCard key={mission.id} mission={mission} />
-                ))}
-              </div>
-            </JarvisSection>
+            {closed.length > 0 ? (
+              <JarvisSection title="Recently closed" meta={`${closed.length} missions`}>
+                <div className="jv-dock">
+                  {closed.map((mission) => (
+                    <MissionCard
+                      key={mission.id}
+                      mission={mission}
+                      cancelAction={cancelMissionAction}
+                    />
+                  ))}
+                </div>
+              </JarvisSection>
+            ) : null}
           </div>
 
           <div className="jv-stack">
             <JarvisSection title={FLEET.name} meta={`${FLEET.members.length} workers`}>
               <div className="jv-team">
                 {FLEET.members.map((member) => (
-                  <span className="jv-worker" key={member.name}>
+                  <span className="jv-worker" key={member.slug}>
                     <AgentDot slug={member.slug} />
-                    {member.name}
+                    {agentBySlug(member.slug)?.name ?? member.slug.toUpperCase()}
                     <em>{member.role}</em>
                   </span>
                 ))}
               </div>
               <p className="jv-sub" style={{ marginTop: 8 }}>
-                Coordinated by JARVIS. Workers stay idle until work is actually
-                delegated, so nothing here pretends to be running.
+                Coordinated by JARVIS. Workers stay idle until a runtime reports
+                work, and nothing here pretends otherwise.
               </p>
             </JarvisSection>
 
@@ -118,18 +170,12 @@ export default function MissionBayPage() {
             </JarvisSection>
 
             <JarvisSection title="Recent mission events">
-              <ol className="jv-feed" style={{ maxHeight: 220 }}>
-                {FIXTURE_MISSIONS.flatMap((mission) =>
-                  mission.events.slice(-3).map((event) => ({
-                    ...feedLine(event, mission),
-                    missionId: mission.id,
-                  }))
-                )
-                  .slice(-12)
-                  .map((event) => (
+              {recentEvents.length > 0 ? (
+                <ol className="jv-feed" style={{ maxHeight: 220 }}>
+                  {recentEvents.map((event) => (
                     <li key={`${event.missionId}-${event.id}`}>
                       <b style={{ color: "#a7c4b6" }}>
-                        {String(event.agentSlug).toUpperCase()}
+                        {String(event.agentSlug ?? "jarvis").toUpperCase()}
                       </b>
                       <span className={event.tone === "err" ? "lbl err" : "lbl"}>
                         {event.text}
@@ -137,7 +183,13 @@ export default function MissionBayPage() {
                       <span className="ts">{clockOf(event.at)}</span>
                     </li>
                   ))}
-              </ol>
+                </ol>
+              ) : (
+                <JarvisEmpty
+                  title="Nothing recorded yet"
+                  text="Mission, worker, tool, and approval events appear here as the mission progresses."
+                />
+              )}
             </JarvisSection>
           </div>
         </div>

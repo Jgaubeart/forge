@@ -134,11 +134,64 @@ otherwise.
 The ported UI renders these validated domain objects — History and Mission Bay
 read the canonical event stream, and the result renderers contain no inference.
 
-## Phase 5 — Supabase persistence and first-workspace onboarding
+## Phase 5 — Supabase persistence and first-workspace onboarding (implemented, NOT APPLIED)
 
-Back the ported UI with durable mission state and add the minimal first-run flow
-that creates the authenticated user's first workspace, then lands them in Mission
-Bay.
+Status: the code and the migration are written and tested; **nothing has been
+applied to the Forge database** and live verification has not happened. Phase 5
+is not complete until the migration runs against the real Forge project and the
+checks below pass there.
+
+**Remote reconciliation.** The Supabase project reachable from this environment
+is a different product (`portal`, ref `kziwwyiybxvzshojdzet`) and was not touched;
+the Forge project (`orxprwiqjtnpgrrheylr`) is in another organisation and is not
+connected here. The migration was therefore written against the *described*
+Forge state — the PR #4-era objects already applied by hand (`run_events`,
+`action_receipts`, `fleets`, `fleet_members`, the runtime columns), 9 agents,
+8 departments, 13 agent capabilities, 1 fleet, 3 fleet members, 0 workspaces —
+and is additive and idempotent so it is safe whether an object already exists or
+not. It contains no `drop table`, no `drop column`, and no data deletion; the only
+drops are `drop policy if exists` immediately before recreating that policy.
+
+**Migration** — `supabase/migrations/004_forge_workspace_and_mission_persistence.sql`:
+mission columns on `tasks` (`kind`, `icon`, `fleet_id`, `current_stage`,
+`reached_stages`, `result`, `error`, timestamps), the `run_events` stream with
+membership-scoped reads and **no** write path for browser sessions, approval
+columns including `destination`, `payload_fingerprint`, `consumed_at` and the
+consumed state, `action_receipts` confirmation, self-owned onboarding insert
+policies for organisations/workspaces/memberships/capabilities, and the Fleet
+seed keyed on agent slugs (idempotent, never duplicating the eight built-ins).
+
+**Persistence boundary** — `lib/forge/persistence/`: `client.js` (session client
+for reads and user-owned writes; service-role client for the two records a
+browser must not write), `map.js` (explicit domain ↔ row mapping, results
+validated on the way in *and* on the way out), `missions.js`, `approvals.js`,
+`workspaces.js`, `agents.js`, and `index.js` as the single boundary the server
+components and actions use. The UI never sees a row.
+
+**Onboarding** — one step, Jarvis-styled: the browser submits a name, and the
+server derives ownership from the verified session, creating organisation →
+organisation membership → workspace → workspace membership → internal capability
+grants (`workspace.read`, `mission.coordinate` at read level only). A failure
+part-way through removes what it just created, so no organisation is left without
+an owner. No external capability is granted for owning a workspace.
+
+**Mission Bay / History** — both read durable state, with three honest states
+kept distinct: database unreachable, no workspace (onboarding), and workspace
+with missions. Dispatching a mission records a queued mission through the Phase 4
+factory; it does not start work, and the command bar says so. Fixtures remain for
+tests and for the development-only `/preview` route.
+
+**Still required remotely** (nobody should mark this phase done until it is):
+apply migration 004 to the Forge project, run the security advisors there, create
+a workspace through onboarding, dispatch a mission, refresh and confirm it
+persists, confirm History shows its events, and confirm a second account cannot
+read the first workspace's rows.
+
+**Environment variables** for the Forge deployment: `NEXT_PUBLIC_SUPABASE_URL`
+and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for the app, and
+`SUPABASE_SERVICE_ROLE_KEY` for the trusted writes (mission events, approvals).
+Without the service-role key missions still save and the UI says their history
+cannot be recorded.
 
 ## Phase 6 — runtime adapter boundary
 
