@@ -45,12 +45,17 @@ function twoWorkspaces() {
 
 // 1–4 ------------------------------------------------------------------------
 test("a first user can create a workspace, with both memberships and safe capabilities", async () => {
-  const client = createFakeSupabase({ userId: "user-a" });
+  const tables = {};
+  const client = createFakeSupabase({ userId: "user-a", tables });
+  // Onboarding always runs with the server's trusted client available, which is
+  // what performs the organisation read-back; the double mirrors that.
+  const trusted = createFakeSupabase({ userId: "service", tables, trusted: true });
 
   const created = await createWorkspaceForUser(client, {
     userId: "user-a",
     name: "Korben HQ",
     organizationName: "Korben",
+    trustedClient: trusted,
   });
 
   assert.equal(created.organization.name, "Korben");

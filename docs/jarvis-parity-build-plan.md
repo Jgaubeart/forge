@@ -134,7 +134,13 @@ otherwise.
 The ported UI renders these validated domain objects — History and Mission Bay
 read the canonical event stream, and the result renderers contain no inference.
 
-## Phase 5 — Supabase persistence and first-workspace onboarding
+## Phase 5 — Supabase persistence and first-workspace onboarding (complete)
+
+**Phase 5 is complete.** Live verification passed against the real Forge project,
+all verification data and accounts were cleaned up, the test suite and build are
+green, and the only remaining Supabase warning is leaked-password protection
+being disabled — an Auth dashboard setting, not an application or schema blocker
+for this phase (recorded below as an open project-setting item).
 
 Status: **migrations 004 and 005 are applied to the real Forge project**
 (`forge`, ref `orxprwiqjtnpgrrheylr`). Its migration history reads `forge_core`,
