@@ -87,7 +87,11 @@ test("onboarding takes identity from the session, never from the submitted form"
 });
 
 test("a partially created organisation is cleaned up if the workspace fails", async () => {
-  const client = createFakeSupabase({ userId: "user-a" });
+  const tables = {};
+  const client = createFakeSupabase({ userId: "user-a", tables });
+  // The organisation read-back runs on the trusted client, exactly as it does in
+  // production, because the creator cannot see it until the membership exists.
+  const trusted = createFakeSupabase({ userId: "service", tables, trusted: true });
   const failing = {
     from(table) {
       const api = client.from(table);
@@ -95,11 +99,8 @@ test("a partially created organisation is cleaned up if the workspace fails", as
       return {
         ...api,
         insert() {
-          return {
-            select: () => ({
-              single: async () => ({ data: null, error: { message: "workspace insert failed" } }),
-            }),
-          };
+          // The adapters insert plainly now, so the failure is returned directly.
+          return { error: { message: "workspace insert failed" } };
         },
       };
     },
@@ -107,7 +108,12 @@ test("a partially created organisation is cleaned up if the workspace fails", as
   };
 
   await assert.rejects(
-    () => createWorkspaceForUser(failing, { userId: "user-a", name: "Korben HQ" }),
+    () =>
+      createWorkspaceForUser(failing, {
+        userId: "user-a",
+        name: "Korben HQ",
+        trustedClient: trusted,
+      }),
     /workspace insert failed/
   );
 
