@@ -149,6 +149,26 @@ environment holds no Forge API keys — only a Supabase access token scoped to a
 different organisation, which returns 403 for the Forge project ref — so sign-in,
 onboarding, mission persistence, History reads, approval persistence, and
 cross-workspace RLS could not be exercised against the real project from here.
+
+What *was* checked against Forge with the publishable key only (read-only):
+`/auth/v1/settings` answers 200 and reports `disable_signup: false` with
+`mailer_autoconfirm: false`, so a new account needs a confirmation click before it
+can sign in; an anonymous read of `agents`, `workspaces`, `tasks`, `approvals`, and
+`membership_capabilities` returns `[]` (RLS filtering), while `run_events`,
+`action_receipts`, `fleets`, `fleet_members`, and `connections` return
+`401 permission denied` — the migration's explicit `revoke … from anon` is in
+effect; and an anonymous insert into `run_events` is refused. That confirms the
+applied policies and grants behave as intended for unauthenticated callers, and
+that no test rows were created (`agents` still reads empty to anon, which is the
+R​LS boundary, not a count).
+
+Two things are needed to finish live verification, and neither can come from this
+environment: a **confirmed test account** (or two, for the cross-workspace check)
+— accounts created through signup would need an email confirmation click, since
+`mailer_autoconfirm` is false — and **`SUPABASE_SERVICE_ROLE_KEY`**, which the
+deployed app needs regardless, because mission events and approvals are written
+only through the trusted server path by design. With those two, the sequence
+below can run end to end.
 Verified in code and tests instead: the persistence boundary maps domain objects
 to rows in both directions with results validated on read; mission events can only
 be written through the trusted path (a browser session cannot forge `run_events`,
