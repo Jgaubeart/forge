@@ -8,18 +8,18 @@ import {
   JarvisSection,
 } from "@/components/jarvis/shell";
 import { FIXTURE_MISSIONS, FLEET, fixtureKindKeys } from "@/lib/jarvis-fixtures";
+import { MISSION_ROUTES, agentBySlug } from "@/lib/forge/agents";
 
 // Mission Bay, ported from the reference viewer: the mission dock is the centre
 // of the screen, the Fleet reads as a team, approvals live inside the mission
 // that staged them, and the command bar sits where the reference HUD does.
-const KINDS = [
-  { key: "fleet", icon: "⚔️", name: "THE FLEET", needsBrief: true },
-  { key: "buildapp", icon: "🛠️", name: "BUILD-ME-AN-APP", needsBrief: true },
-  { key: "reaper", icon: "💰", name: "SUBSCRIPTION REAPER", needsBrief: false },
-  { key: "warroom", icon: "📊", name: "CHANNEL WAR ROOM", needsBrief: false },
-  { key: "announce", icon: "📣", name: "ANNOUNCE-IT-EVERYWHERE", needsBrief: true },
-  { key: "haters", icon: "🔥", name: "READ-THE-HATERS", needsBrief: false },
-];
+// Mission kinds come from the routing metadata rather than a local list.
+const KINDS = MISSION_ROUTES.map((route) => ({
+  key: route.kind,
+  icon: route.icon,
+  name: route.label,
+  needsBrief: route.needsBrief,
+}));
 
 export default function MissionBayPage() {
   const active = FIXTURE_MISSIONS.filter((mission) =>
@@ -43,7 +43,7 @@ export default function MissionBayPage() {
           <div className="jv-legend">
             {FLEET.members.map((member) => (
               <span key={member.name}>
-                <AgentDot name={member.name} live={member.name === "SCOUT"} />
+                <AgentDot slug={member.slug} live={member.slug === "scout"} />
                 {member.name}
               </span>
             ))}
@@ -87,7 +87,7 @@ export default function MissionBayPage() {
               <div className="jv-team">
                 {FLEET.members.map((member) => (
                   <span className="jv-worker" key={member.name}>
-                    <AgentDot name={member.name} />
+                    <AgentDot slug={member.slug} />
                     {member.name}
                     <em>{member.role}</em>
                   </span>
@@ -126,7 +126,9 @@ export default function MissionBayPage() {
                   .slice(-12)
                   .map((event) => (
                     <li key={`${event.id}-${event.ts}-${event.label}`}>
-                      <b style={{ color: "#a7c4b6" }}>{event.agent}</b>
+                      <b style={{ color: "#a7c4b6" }}>
+                        {agentBySlug(event.agentSlug)?.name ?? event.agentSlug}
+                      </b>
                       <span className="lbl">{event.label}</span>
                       <span className="ts">{event.ts.slice(11, 16)}</span>
                     </li>

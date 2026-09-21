@@ -884,6 +884,14 @@ a {
   color: var(--jv-txt);
 }
 
+.jv-prose {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--jv-txt);
+  max-width: 78ch;
+}
+
 .jv-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));

@@ -41,7 +41,7 @@ export default function HistoryPage() {
               <ol className="jv-feed" style={{ maxHeight: "none" }}>
                 {mission.events.map((event) => (
                   <li key={`${event.ts}-${event.label}`}>
-                    <AgentFeedName name={event.agent} />
+                    <AgentFeedName slug={event.agentSlug} />
                     <span className={event.kind === "error" ? "lbl err" : "lbl"}>
                       {event.label}
                     </span>

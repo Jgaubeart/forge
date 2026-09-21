@@ -40,11 +40,41 @@ agent colour identity, inline confirm controls, result rendering, the Tool
 Armory tile grid, density, and the navigation shape. No backend work in this
 phase.
 
-## Phase 3 — Jarvis agent catalog and Fleet
+## Phase 3 — Jarvis agent catalog and Fleet (complete)
 
-Seed the named agents (JARVIS, SCOUT, FORGE, SAGE, REAPER, WARROOM, HERALD,
-HATERS) and the Fleet (SCOUT + FORGE + SAGE, coordinated by JARVIS) with the
-reference prompts adapted to the web. Agents keep their reference identities.
+The workforce is now a real code model in `lib/forge/agents`, and the Phase 2 UI
+reads from it instead of carrying its own copies.
+
+**Agent catalog** — `lib/forge/agents/catalog.js` is the canonical definition of
+the eight reference agents: JARVIS (coordination), SCOUT (recon), FORGE (maker),
+SAGE (critic), REAPER (subscription audit), WARROOM (analytics), HERALD
+(announcements), HATERS (community). Each entry carries a stable slug, name,
+role, department, glyph, reference colour, summary, real system instructions
+ported from the package prompts, action ceiling (read / draft / execute),
+delegation permission, the mission kinds it serves, required and optional
+capabilities, and an honest capability state (`defined`, `fixture-only`,
+`not-connected`, `future`) with a plain-language note. Prompts keep the
+reference's tone and boundaries — read-only where the reference is read-only,
+no fake progress, no claims without a receipt, credentials never requested — and
+carry no desktop-only detail.
+
+**Fleet definition** — `lib/forge/agents/fleet.js` defines `the-fleet`: display
+name, description, lead (JARVIS), ordered members with roles (SCOUT recon,
+FORGE maker, SAGE critic), what each produces, and a behaviour contract
+(JARVIS decomposes, workers produce, JARVIS assembles; a subset is allowed; the
+canonical order stands; workers stay idle until work is actually delegated).
+
+**Mission routing metadata** — `lib/forge/agents/routing.js` is declarative
+only: general → JARVIS, fleet → The Fleet, buildapp → FORGE, reaper → REAPER,
+warroom → WARROOM, announce → HERALD, haters → HATERS, plus individual work
+routes (research → SCOUT, build/draft → FORGE, review/critique → SAGE) that
+JARVIS can compose later. There is no AI routing and no execution.
+
+The UI consumes all of this: agent names, colours, roles, fleet membership, and
+mission kinds come from the catalog, and the fixture layer now references agent
+slugs rather than restating identity. The `/agents` surface renders departments,
+capability state, fleet membership, and routing, with full system instructions
+available only behind a disclosure.
 
 ## Phase 4 — mission semantics and structured results
 

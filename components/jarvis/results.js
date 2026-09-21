@@ -4,6 +4,7 @@
 // Each mission kind has its own presentation, and none of them dump raw JSON.
 
 import { AgentDot } from "./agent-sigil";
+import { agentBySlug } from "@/lib/forge/agents";
 
 export function MissionResult({ mission }) {
   const result = mission.result;
@@ -147,11 +148,12 @@ export function MissionResult({ mission }) {
 }
 
 export function WorkerRow({ worker }) {
+  const agent = agentBySlug(worker.slug);
   return (
     <span className="jv-worker">
-      <AgentDot name={worker.name} live={worker.state === "active"} />
-      {worker.name}
-      <em>{worker.role}</em>
+      <AgentDot slug={worker.slug} live={worker.state === "active"} />
+      {agent?.name ?? worker.slug.toUpperCase()}
+      <em>{agent?.role.toLowerCase() ?? "worker"}</em>
     </span>
   );
 }

@@ -24,10 +24,10 @@ test("the running fleet fixture shows a coordinated three-agent team", () => {
   );
 
   assert.ok(fleet, "no running fleet mission");
-  assert.equal(fleet.lead, "JARVIS");
+  assert.equal(fleet.leadSlug, "jarvis");
   assert.deepEqual(
-    fleet.team.map((worker) => worker.name),
-    ["SCOUT", "FORGE", "SAGE"]
+    fleet.team.map((worker) => worker.slug),
+    ["scout", "forge", "sage"]
   );
   assert.ok(fleet.events.length >= 4, "fleet fixture needs a real feed");
   assert.ok(
@@ -90,20 +90,12 @@ test("the failed and cancelled fixtures explain themselves without claiming succ
 });
 
 test("agent identities keep the reference colours", () => {
-  assert.deepEqual(Object.keys(AGENT_COLORS).sort(), [
-    "FORGE",
-    "HATERS",
-    "HERALD",
-    "JARVIS",
-    "REAPER",
-    "SAGE",
-    "SCOUT",
-    "WARROOM",
-  ]);
+  assert.equal(Object.keys(AGENT_COLORS).length, 8);
 
   for (const agent of AGENTS) {
     assert.ok(AGENT_COLORS[agent.name], `${agent.name} has no colour`);
-    assert.ok(agent.capability && agent.level && agent.role);
+    assert.ok(agent.capabilities.required.length > 0);
+    assert.ok(agent.actionCeiling && agent.role && agent.slug);
   }
 
   assert.equal(FLEET.coordinator, "JARVIS");

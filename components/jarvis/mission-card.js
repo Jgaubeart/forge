@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { AgentDot, AgentFeedName } from "./agent-sigil";
 import { MissionResult, WorkerRow } from "./results";
+import { agentBySlug } from "@/lib/forge/agents";
 
 // Mission card, ported from the reference mission dock (.jm-card): icon + kind
 // title, status LED, agent-coloured event feed, stage chips, inline confirm
@@ -29,6 +30,7 @@ export function MissionCard({ mission, expanded = false }) {
   const status = cancelled ? "cancelled" : mission.status;
   const feed = showAll ? mission.events : mission.events.slice(-FEED_LIMIT);
   const hasResult = Boolean(mission.result);
+  const lead = agentBySlug(mission.leadSlug);
 
   return (
     <article className="jv-mission" data-status={status}>
@@ -43,8 +45,8 @@ export function MissionCard({ mission, expanded = false }) {
       <div className="jv-mission-meta">
         <span>{mission.kind.name}</span>
         <span>
-          <AgentDot name={mission.lead} live={status === "running"} />
-          {mission.lead}
+          <AgentDot slug={mission.leadSlug} live={status === "running"} />
+          {lead?.name ?? mission.leadSlug}
         </span>
         <span>{mission.statusLabel}</span>
       </div>
@@ -54,7 +56,7 @@ export function MissionCard({ mission, expanded = false }) {
       {mission.team.length > 0 ? (
         <div className="jv-team">
           {mission.team.map((worker) => (
-            <WorkerRow key={worker.name} worker={worker} />
+            <WorkerRow key={worker.slug} worker={worker} />
           ))}
         </div>
       ) : null}
@@ -72,7 +74,7 @@ export function MissionCard({ mission, expanded = false }) {
       <ol className="jv-feed">
         {feed.map((event) => (
           <li key={`${event.ts}-${event.label}`}>
-            <AgentFeedName name={event.agent} />
+            <AgentFeedName slug={event.agentSlug} />
             <span className={event.kind === "error" ? "lbl err" : "lbl"}>{event.label}</span>
             <span className="ts">{event.ts.slice(11, 16)}</span>
           </li>
