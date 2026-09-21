@@ -11,24 +11,34 @@ import { APPROVAL_STATE, actionLanguage } from "@/lib/forge/missions";
 // status LED, agent-coloured feed, stage chips, inline confirmation, and the
 // result inside the card.
 //
-// The card renders a validated domain mission. In this phase the confirm buttons
-// only change local state — no runtime, no service, and the card says so.
+// The card renders a validated domain mission. Start and Sync are server actions:
+// starting dispatches one runtime run, syncing folds the runtime's own report
+// back in. The confirm buttons still only change local state — approval
+// execution is a later phase, and the card says so.
 const FEED_LIMIT = 8;
 
 // Hooks must be called unconditionally, so a card without a server action still
 // gets a function. It is never submitted: without an action the card renders the
 // local fixture button instead of a form.
-async function noCancelAction() {
+async function noAction() {
   return null;
 }
 
-export function MissionCard({ mission, cancelAction = null }) {
+export function MissionCard({
+  mission,
+  cancelAction = null,
+  dispatchAction = null,
+  refreshAction = null,
+  runtimeReady = false,
+}) {
   // With a server action the cancel is durable; without one (the fixture preview
   // route) the button only changes this card, which is what a fixture can do.
   const [cancelState, cancel, cancelling] = useActionState(
-    cancelAction ?? noCancelAction,
+    cancelAction ?? noAction,
     null
   );
+  const [dispatchState, dispatch, dispatching] = useActionState(dispatchAction ?? noAction, null);
+  const [syncState, sync, syncing] = useActionState(refreshAction ?? noAction, null);
   const [approval, setApproval] = useState(mission.approval ?? null);
   const [showAll, setShowAll] = useState(false);
   const [stopped, setStopped] = useState(mission.status === "cancelled");
@@ -131,8 +141,8 @@ export function MissionCard({ mission, cancelAction = null }) {
             </button>
           </div>
           <div className="jv-confirm-note">
-            Fixture approval. Confirming changes this card only — no service is
-            called in this phase.
+            Confirming changes this card only. Approval execution arrives in a
+            later phase: nothing is sent, and no receipt is written.
           </div>
         </div>
       ) : null}
@@ -148,8 +158,8 @@ export function MissionCard({ mission, cancelAction = null }) {
 
       {stopped && mission.status !== "cancelled" ? (
         <div className="jv-notice" style={{ marginTop: 9 }}>
-          Stop requested in the fixture. Prior events and any partial result stay
-          on the mission, and the runtime stop call arrives in a later phase.
+          Stop requested here. Prior events and any partial result stay on the
+          mission. The preview route has no runtime to stop.
         </div>
       ) : null}
 
@@ -160,6 +170,26 @@ export function MissionCard({ mission, cancelAction = null }) {
           style={{ marginTop: 9 }}
         >
           {cancelState.message}
+        </div>
+      ) : null}
+
+      {dispatchState?.message ? (
+        <div
+          className="jv-notice"
+          data-tone={dispatchState.ok ? undefined : "wait"}
+          style={{ marginTop: 9 }}
+        >
+          {dispatchState.message}
+        </div>
+      ) : null}
+
+      {syncState?.message ? (
+        <div
+          className="jv-notice"
+          data-tone={syncState.ok ? undefined : "wait"}
+          style={{ marginTop: 9 }}
+        >
+          {syncState.message}
         </div>
       ) : null}
 
@@ -178,6 +208,36 @@ export function MissionCard({ mission, cancelAction = null }) {
 
       <footer className="jv-mission-foot">
         <span className="jv-mono">{mission.kind}</span>
+        {dispatchAction && mission.status === "queued" ? (
+          <form action={dispatch}>
+            <input type="hidden" name="missionId" value={mission.id} />
+            <button
+              className="jv-btn ghost"
+              type="submit"
+              disabled={dispatching || !runtimeReady}
+              title={
+                runtimeReady
+                  ? "Run this mission through the runtime"
+                  : "The execution runtime is not connected"
+              }
+            >
+              {dispatching ? "Starting…" : "Start"}
+            </button>
+          </form>
+        ) : null}
+        {refreshAction && !stopped && status !== "completed" && status !== "cancelled" ? (
+          <form action={sync}>
+            <input type="hidden" name="missionId" value={mission.id} />
+            <button
+              className="jv-btn ghost"
+              type="submit"
+              disabled={syncing}
+              title="Ask the runtime what happened"
+            >
+              {syncing ? "Syncing…" : "Sync"}
+            </button>
+          </form>
+        ) : null}
         {mission.cancellationAllowed && !stopped && status !== "completed" ? (
           cancelAction ? (
             <form action={cancel}>

@@ -19,6 +19,7 @@ export function createFakeSupabase({ userId = null, memberships = [], tables = {
     workspace_memberships: [],
     membership_capabilities: [],
     tasks: [],
+    agent_runs: [],
     run_events: [],
     approvals: [],
     agents: [],
@@ -31,10 +32,17 @@ export function createFakeSupabase({ userId = null, memberships = [], tables = {
   );
   const canWriteEvents = trusted;
   const canWriteApprovals = trusted;
+  const canWriteRuns = trusted;
 
   const scoped = (table, row) => {
     if (trusted) return true;
     if (table === "tasks" || table === "run_events") return workspaceIds.has(row.workspace_id);
+    // agent_runs select goes through the task's workspace, like the real policy
+    // `agent_runs_select_via_task`.
+    if (table === "agent_runs") {
+      const task = db.tasks.find((t) => t.id === row.task_id);
+      return Boolean(task) && workspaceIds.has(task.workspace_id);
+    }
     if (table === "approvals") {
       const task = db.tasks.find((t) => t.id === row.task_id);
       return Boolean(task) && workspaceIds.has(task.workspace_id);
@@ -68,11 +76,27 @@ export function createFakeSupabase({ userId = null, memberships = [], tables = {
         const rows = Array.isArray(values) ? values : [values];
         const blocked =
           (table === "run_events" && !canWriteEvents) ||
-          (table === "approvals" && !canWriteApprovals);
+          (table === "approvals" && !canWriteApprovals) ||
+          (table === "agent_runs" && !canWriteRuns);
 
         if (blocked) {
           api._error = { message: `permission denied for table ${table}` };
           return api;
+        }
+
+        // The runtime run id is unique in the real schema; the double enforces it
+        // so a repeated dispatch cannot quietly create a second run row.
+        if (table === "agent_runs") {
+          const clash = rows.find((row) =>
+            db.agent_runs.some((existing) => existing.hermes_run_id === row.hermes_run_id)
+          );
+          if (clash) {
+            api._error = {
+              code: "23505",
+              message: `duplicate key value violates unique constraint "agent_runs_hermes_run_id_key"`,
+            };
+            return api;
+          }
         }
 
         const inserted = rows.map((row) => ({

@@ -71,6 +71,7 @@ test("Hermes payloads normalize into Forge shapes", () => {
     "createdAt",
     "error",
     "id",
+    "resultText",
     "startedAt",
     "status",
     "statusRaw",
@@ -95,6 +96,17 @@ test("Hermes payloads normalize into Forge shapes", () => {
   assert.equal(event.actorLabel, "scout");
   assert.deepEqual(event.metadata, { tool: "research.web_search" }, "nested metadata is dropped");
   assert.equal(normalizeEvent({}), null);
+
+  // The live stream uses `event` as the name and epoch seconds as the timestamp;
+  // both are normalized so the same event always produces the same key.
+  const liveEvent = normalizeEvent({
+    event: "run.completed",
+    run_id: "run_1",
+    timestamp: 1790019589.5,
+    output: "{}",
+  });
+  assert.equal(liveEvent.type, "run.completed");
+  assert.equal(liveEvent.at, new Date(1790019589.5 * 1000).toISOString());
 
   assert.equal(normalizeHealth({ status: "ok", version: "8.1.0" }).state, "healthy");
   assert.equal(normalizeHealth({ status: "starting" }).state, "degraded");

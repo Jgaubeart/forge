@@ -429,9 +429,18 @@ test("the persistence layer never calls Hermes, a provider, or the network", () 
     .join("\n")
     .toLowerCase();
 
-  for (const forbidden of ["hermes", "fetch(", "oauth", "http://", "https://", "gmail", "github", "vapi", "retell"]) {
+  for (const forbidden of ["fetch(", "oauth", "http://", "https://", "gmail", "github", "vapi", "retell"]) {
     assert.equal(sources.includes(forbidden), false, `persistence must not reference ${forbidden}`);
   }
+
+  // The runtime's run id is a durable column the persistence layer stores, so the
+  // word appears — but nothing may import the Hermes client, read its
+  // configuration, or talk to it in any other way.
+  const runtimeReferences = sources
+    .split("\n")
+    .filter((line) => /hermes/.test(line) && !/hermes_?run_?id/.test(line));
+  assert.deepEqual(runtimeReferences, [], "persistence must not reference the runtime client");
+  assert.equal(sources.includes("hermes_api"), false, "persistence must not read runtime config");
 
   // And the auth foundation is still the only identity source.
   assert.match(read("app/(protected)/layout.js"), /requireUser/);

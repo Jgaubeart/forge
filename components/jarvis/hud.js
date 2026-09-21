@@ -4,9 +4,8 @@ import { useActionState, useState } from "react";
 
 // Bottom command bar, ported from the reference #hud pill.
 //
-// Dispatching creates a durable mission record through a server action. It does
-// not start work: no runtime is connected in this phase, and the bar says so
-// rather than implying progress.
+// Dispatching creates a durable mission record through a server action. It stays
+// queued: starting it is a separate, deliberate step on the mission card.
 export function JarvisHud({ kinds, counts, startAction }) {
   const [state, submit, pending] = useActionState(startAction, null);
   const [brief, setBrief] = useState("");
@@ -46,7 +45,7 @@ export function JarvisHud({ kinds, counts, startAction }) {
 
       <span className="jv-hud-note">
         {state?.message ??
-          "Records the mission as queued. No runtime is connected yet, so nothing executes."}
+          "Records the mission as queued. Nothing runs until you start it."}
       </span>
     </form>
   );

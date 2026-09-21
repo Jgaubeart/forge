@@ -423,10 +423,136 @@ the gateway answered the byte-identical generic `401` for every transport
 `API_SERVER_KEY` was supplied. The credential was neither created nor rotated
 during this work.
 
-## Phase 7 — Hermes single-agent execution
+## Phase 7 — Hermes single-agent execution (complete)
 
-One agent, one mission, one Hermes run: submit, persist the Hermes run id, mirror
-status, and record events.
+One persisted Forge mission now executes exactly one specialist agent through
+Hermes, and the runtime's own answer — status, events, output — is what Mission
+Bay and History show. Fleet delegation, business tools, and approval execution
+stay out of this phase on purpose.
+
+**What may run.** `RUNTIME_ELIGIBLE_KINDS` in `lib/forge/runtime/execution.js` is
+the allowlist, and it holds one kind: `warroom` — a single read-only specialist
+with no external connection. Fleet kinds need delegation (Phase 8) and the
+publish/subscription kinds need real tools (Phase 9+), so they are refused with a
+plain reason rather than half-run. The refusal is a code path, not a comment:
+`mission_kind_not_executable`.
+
+**Dispatch flow** (`app/(protected)/missions/actions.js` →
+`startSingleAgentMission`) — create a mission as queued from the command bar, then
+start it deliberately:
+
+1. the signed-in user is authorized against the workspace (`requireUser`, then the
+   membership, then a workspace-id match on the mission itself, all before
+   anything else);
+2. the canonical agent definition comes from the Phase 3 catalog, so behaviour is
+   never restated in the database;
+3. the mission's own route capability is granted at read level, and nothing else;
+4. `buildRuntimeContext` builds the safe context — brief, agent instructions,
+   capability ceiling, connection *references* (none), workspace identity, policy,
+   delegation off;
+5. `buildMissionRuntimeRequest` produces the normalized request;
+6. `getForgeRuntime().createRun()` calls Hermes, server-side only;
+7. the Hermes run id is written to `agent_runs.hermes_run_id`;
+8. the mission moves queued → running and its stage advances;
+9. `mission.started` and `agent.started` are appended to the durable event stream.
+
+If the runtime is unconfigured, rejects the credentials, is unreachable, times
+out, or refuses the request, **nothing is dispatched**: no run row, no invented
+events, and the mission stays queued with a plain sentence explaining why.
+
+**Runtime correlation and idempotency.** `agent_runs.hermes_run_id` already
+existed and is unique, so **no migration was needed** for Phase 7 — one Forge
+mission, one run row, one runtime run id. The correlation key is deterministic
+from the mission identity (`forge.mission.<taskId>.single-agent.v1`) and is sent
+as Hermes's idempotency key, which the runtime reports as durable. Two guards
+make duplicate dispatch harmless: dispatch refuses when a run already exists for
+the mission, and the unique run id means a repeated create returns the existing
+row instead of a second run.
+
+**Event ingestion.** Reconciliation reads the run's events, maps them onto the
+existing Forge vocabulary (`lib/forge/runtime/event-map.js`), and appends only
+what is new. Every persisted event carries a stable `metadata.runtimeKey`, so
+ingesting the same stream twice cannot duplicate a durable event. Mapping is
+conservative: `run.*`, `agent.*`, `stage.*`, `tool.*`, and `approval.*` names
+have a Forge counterpart, and anything Forge has no vocabulary for is dropped
+rather than invented. Token-level noise (`message.delta`) and reasoning text are
+deliberately not persisted — Forge records milestones, not tokens.
+
+**A real characteristic of this runtime, found by the live pass:** Hermes serves a
+run's event stream only *while the run is live* — `/v1/runs/{id}/events` answers
+`run_not_found` once it finishes, and it does not replay on reconnect, while
+`/v1/runs/{id}` keeps serving the final status and output. So dispatch opens a
+**bounded live read** (`streamHermesRunEvents`, capped by time and event count,
+stopping at the first terminal event) and folds those events in as they arrive;
+reconciliation does the same for a run that is still live, and otherwise reads
+the run's status and output, which are durable. Nothing is invented to cover the
+gap, and the mission's outcome never depends on catching the stream.
+
+**Lifecycle mapping** — one model, not two. Runtime status maps onto the Phase 4
+lifecycle and is applied through `canTransitionMission`, so an illegal or
+repeated move is simply not taken: `queued`/`planning` → planning, `running` →
+running, `waiting_approval` → waiting_approval, `completed` → completed,
+`failed` → failed, `cancelled`/`stopped` → cancelled. Stage moves forward only.
+
+**Results.** When the run completes, its final text is parsed as JSON, validated
+against the mission kind's own result contract, and persisted with
+`completed_at`. If the text is not valid JSON, or does not satisfy the contract,
+the mission **fails** and records the safe fallback plus a bounded error — Forge
+never reports a result it could not validate. A run the runtime reports as failed
+fails the mission with its bounded error message.
+
+**Cancellation** keeps the existing Forge semantics and adds the runtime stop:
+authorize, ask the runtime to stop the run, cancel the mission locally, keep every
+prior event and any partial result, and update the run row. Repeating a cancel is
+a no-op (`alreadyStopped`) with no second runtime call, and a run the runtime no
+longer knows about counts as stopped. If the runtime cannot be reached, the
+mission is still cancelled and the operator is told plainly that the runtime's
+work may not have stopped — the honest failure, not a silent one.
+
+**Approval events.** `approval.requested` maps onto the existing approval domain
+model, is staged through the trusted path, and parks the mission in
+`waiting_approval`. Nothing is auto-approved and nothing executes; the operator's
+decision path stays where it was.
+
+**UI.** Mission Bay shows the real persisted state — queued, planning, running,
+awaiting your word, complete, error, cancelled — with the real event feed, and
+each card gains two small controls: Start (queued missions, disabled when the
+runtime is not connected) and Sync (ask the runtime what happened). No interface
+redesign, no runtime-debug surface, and the browser still never touches the
+runtime: both controls are server actions.
+
+### Live verification
+
+Against the real Hermes runtime and the real Forge project, with a temporary
+signed-in user, workspace, and one harmless read-only mission ("Return a concise
+operational status summary for this test mission. Do not call external tools."):
+
+| Check | Result |
+| --- | --- |
+| User signs in; first workspace created with organisation and membership | passed |
+| Mission persists as queued with its creation event | passed |
+| Start creates exactly one Hermes run | passed |
+| Hermes run id persisted on the mission's run row | `run_80defeeb5d454997a067fc8fcdc93aee` |
+| Mission transitions to running, then completed | passed |
+| The runtime's live stream is read during dispatch | 75 runtime events read (`message.delta`) |
+| Durable event sequence | `mission.created → mission.started → agent.started → result.updated → mission.completed` |
+| Duplicate reconciliation appends nothing | 5 events → 5 events |
+| Validated result persisted | kind `warroom`, with no receipt it does not have |
+| Refresh returns the same final state | passed |
+| No credential in the request, the events, or the result | passed |
+| No tool action, no staged or auto-approved approval | 0 tool events, 0 approvals |
+| Second user cannot read the mission, its run, its events, or mutate it | passed |
+| Cleanup | 5 events, 1 run, 1 mission, 2 memberships, 2 capability grants, 1 workspace, 1 organisation, 2 test users — all removed; 0 missions left in the project |
+
+**Fix made during this phase** (beyond the feature itself): the live stream's
+events name themselves with an `event` field and time themselves in epoch
+seconds, and carry their detail at the top level rather than under `metadata`.
+Normalization now reads all three shapes, so a real event maps, keeps its tool
+name, and produces a stable dedupe key instead of being silently dropped.
+
+**Not in this phase:** Fleet delegation, business tools, approval execution,
+receipts, and any background polling platform. Reconciliation is server-triggered
+on purpose; continuous streaming belongs with the phases that need it.
 
 ## Phase 8 — Hermes Fleet / subagent delegation
 

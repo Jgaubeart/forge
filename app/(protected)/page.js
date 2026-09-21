@@ -14,7 +14,12 @@ import { MISSION_KINDS, isActiveMission, isTerminalMission } from "@/lib/forge/m
 import { loadMissionBayState } from "@/lib/forge/persistence/state.js";
 import { runtimeStatus } from "@/lib/forge/runtime";
 import { createWorkspaceAction } from "./onboarding/actions";
-import { startMissionAction, cancelMissionAction } from "./missions/actions";
+import {
+  cancelMissionAction,
+  dispatchMissionAction,
+  refreshMissionAction,
+  startMissionAction,
+} from "./missions/actions";
 
 // Mission Bay on durable state.
 //
@@ -72,7 +77,7 @@ export default async function MissionBayPage() {
       <JarvisHeading
         eyebrow="Mission Bay"
         title="Mission Bay"
-        sub="Ask for an outcome. Forge records the mission durably; the runtime that will work it is not connected yet."
+        sub="Ask for an outcome. Forge records the mission durably, and starts it through the execution runtime when you say so."
         meta={`${state.membership.workspace.name} · ${active.length} active · ${awaiting.length} awaiting your word`}
         actions={
           <div className="jv-legend">
@@ -121,13 +126,16 @@ export default async function MissionBayPage() {
                       key={mission.id}
                       mission={mission}
                       cancelAction={cancelMissionAction}
+                      dispatchAction={dispatchMissionAction}
+                      refreshAction={refreshMissionAction}
+                      runtimeReady={runtime.state === "healthy"}
                     />
                   ))}
                 </div>
               ) : (
                 <JarvisEmpty
                   title="No missions yet"
-                  text="Dispatch one from the command bar. It is saved as queued — no runtime is connected, so nothing starts on its own."
+                  text="Dispatch one from the command bar. It is saved as queued, and nothing starts until you start it."
                 />
               )}
             </JarvisSection>
@@ -140,6 +148,7 @@ export default async function MissionBayPage() {
                       key={mission.id}
                       mission={mission}
                       cancelAction={cancelMissionAction}
+                      refreshAction={refreshMissionAction}
                     />
                   ))}
                 </div>
