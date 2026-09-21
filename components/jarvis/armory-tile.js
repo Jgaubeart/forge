@@ -30,6 +30,7 @@ export function ArmoryTile({ tool }) {
         <span>{tool.review}</span>
         {tool.connection ? <span>{tool.connection}</span> : <span>no connection</span>}
         {tool.unknown ? <span>remote · always reviewed</span> : null}
+        {tool.demo ? <span>demo state</span> : null}
       </div>
     </article>
   );

@@ -136,19 +136,35 @@ read the canonical event stream, and the result renderers contain no inference.
 
 ## Phase 5 — Supabase persistence and first-workspace onboarding
 
-Status: **migration 004 is applied to the real Forge project** (`forge`,
-ref `orxprwiqjtnpgrrheylr`), whose migration history now reads `forge_core`,
-`harden_forge_rls`, `forge_fleet`, `forge_workspace_and_mission_persistence`.
-Live counts after applying: organisations 0, workspaces 0, workspace
-memberships 0, tasks 0, run_events 0, approvals 0, agents 9, fleets 1,
-fleet_members 3 — a clean, empty Forge database with the workforce seeded and no
-test data.
+Status: **migrations 004 and 005 are applied to the real Forge project**
+(`forge`, ref `orxprwiqjtnpgrrheylr`). Its migration history reads `forge_core`,
+`harden_forge_rls`, `forge_fleet`, `forge_workspace_and_mission_persistence`,
+`revoke_handle_new_user_execute`. Live counts after applying: organisations 0,
+workspaces 0, workspace memberships 0, tasks 0, run_events 0, approvals 0,
+agents 9, fleets 1, fleet_members 3 — a clean, empty Forge with the workforce
+seeded and no test data. Nothing in the unrelated `portal` project was touched.
 
-Verified live: the schema applied, the workforce rows are present, and nothing in
-the unrelated `portal` project was touched. Still to verify against Forge once
-the app is connected: onboarding creating an organisation and both memberships,
-a mission persisting across a refresh, History reading its events, and a second
-account being unable to read the first workspace.
+**Final live verification pass: attempted, blocked on credentials.** This
+environment holds no Forge API keys — only a Supabase access token scoped to a
+different organisation, which returns 403 for the Forge project ref — so sign-in,
+onboarding, mission persistence, History reads, approval persistence, and
+cross-workspace RLS could not be exercised against the real project from here.
+Verified in code and tests instead: the persistence boundary maps domain objects
+to rows in both directions with results validated on read; mission events can only
+be written through the trusted path (a browser session cannot forge `run_events`,
+and approvals have no insert or update policy at all); approvals are single-use;
+cross-workspace reads return nothing for a non-member; the agent catalog stays
+canonical over durable rows; and onboarding derives ownership from the session
+rather than the submitted form. Phase 5 is therefore **not marked complete**.
+
+It completes when the app runs against Forge with `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` set, and this
+sequence passes live: sign in; land on the one-step onboarding; create a
+workspace; confirm the organisation, both memberships, and the two read-level
+capability grants; dispatch a mission; refresh and confirm it persists with its
+stage intact; confirm History shows the `mission.created` event with an
+operator-readable label; and confirm a second account cannot read the first
+workspace's missions, events, or approvals.
 
 Security follow-up (same phase): the advisor flagged
 `public.handle_new_user()` as a SECURITY DEFINER function callable by `anon` and
@@ -159,11 +175,6 @@ EXECUTE when a trigger is created rather than when it fires, and the owner keeps
 its own privileges, so signup is unaffected. Outstanding **project setting**
 (not schema): Supabase's leaked-password protection is disabled — that is an Auth
 setting in the dashboard, recorded here rather than solved in SQL.
-
-Status: the code and the migration are written and tested; **nothing has been
-applied to the Forge database** and live verification has not happened. Phase 5
-is not complete until the migration runs against the real Forge project and the
-checks below pass there.
 
 **Remote reconciliation.** The Supabase project reachable from this environment
 is a different product (`portal`, ref `kziwwyiybxvzshojdzet`) and was not touched;
@@ -205,11 +216,13 @@ with missions. Dispatching a mission records a queued mission through the Phase 
 factory; it does not start work, and the command bar says so. Fixtures remain for
 tests and for the development-only `/preview` route.
 
-**Still required remotely** (nobody should mark this phase done until it is):
-apply migration 004 to the Forge project, run the security advisors there, create
-a workspace through onboarding, dispatch a mission, refresh and confirm it
-persists, confirm History shows its events, and confirm a second account cannot
-read the first workspace's rows.
+**Fix made during the final pass** (the only code change): the authenticated Tool
+Armory and Settings pages still imported the fixture module. The declarations now
+live in `lib/forge/tools/declared.js` (product intent), while the demo shelf with
+connected/waiting/setup states stayed in the fixture layer, marked `demo` and
+reachable only from the development preview. Every tile on the authenticated
+armory reports not connected, and a test fails if any production route imports
+fixture data again.
 
 **Environment variables** for the Forge deployment: `NEXT_PUBLIC_SUPABASE_URL`
 and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for the app, and

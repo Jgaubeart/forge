@@ -427,6 +427,42 @@ test("the persistence layer never calls Hermes, a provider, or the network", () 
   assert.match(read("app/(protected)/missions/actions.js"), /requireUser/);
 });
 
+test("authenticated routes never fall back to fixtures, and the preview stays development-only", () => {
+  const dir = new URL("../app/(protected)/", import.meta.url);
+
+  const walk = (url, found = []) => {
+    for (const entry of readdirSync(url, { withFileTypes: true })) {
+      const next = new URL(`${entry.name}${entry.isDirectory() ? "/" : ""}`, url);
+      if (entry.isDirectory()) walk(next, found);
+      else if (entry.name.endsWith(".js")) found.push(next);
+    }
+    return found;
+  };
+
+  const offenders = walk(dir)
+    .filter((file) => readFileSync(file, "utf8").includes("lib/jarvis-fixtures"))
+    .map((file) => file.pathname.split("/app/")[1]);
+
+  assert.deepEqual(
+    offenders,
+    [],
+    "production routes must read persistence or the catalog, never fixture data"
+  );
+
+  // The fixture preview exists, and it refuses to render in production.
+  const preview = read("app/preview/page.js");
+  assert.match(preview, /NODE_ENV === "production"/);
+  assert.match(preview, /notFound\(\)/);
+
+  // Mission Bay and History render an honest state when the database is unreachable.
+  for (const page of ["app/(protected)/page.js", "app/(protected)/history/page.js"]) {
+    const source = read(page);
+    assert.match(source, /loadMissionBayState/);
+    assert.match(source, /!state\.ok/);
+    assert.match(source, /could not reach its database|needs the Forge database/);
+  }
+});
+
 test("the migration is additive, RLS-scoped, and does not let browsers write events", () => {
   const sql = read("supabase/migrations/004_forge_workspace_and_mission_persistence.sql")
     .split("\n")

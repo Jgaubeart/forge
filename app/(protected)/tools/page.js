@@ -1,64 +1,44 @@
 import { ArmoryTile } from "@/components/jarvis/armory-tile";
 import { JarvisHeading, JarvisSection } from "@/components/jarvis/shell";
-import { fixtureConnectedCount, fixtureTools } from "@/lib/jarvis-fixtures";
+import { declaredTools } from "@/lib/forge/tools/declared.js";
 
-// Tool Armory, ported from the reference shelf: tiles with a status pill, logo
-// chip, action classification, and an honest "not implemented" state for tools
-// that have no adapter.
+// Tool Armory on an authenticated route.
+//
+// The shelf lists what Forge intends to expose — names, providers, action levels,
+// and review policy — but every tile is reported as not connected, because in
+// this phase nothing is: there are no provider adapters, no OAuth, and no
+// connections. The richer multi-state shelf (connected, waiting, needs setup)
+// lives only on the development preview route, so a real workspace never sees
+// fixture state dressed up as live state.
 export default function ToolArmoryPage() {
-  const tools = fixtureTools();
-  const connected = fixtureConnectedCount();
-  const pending = tools.filter((tool) => ["waiting", "setup"].includes(tool.status));
-  const unavailable = tools.filter((tool) => tool.status === "unavailable");
-  const ready = tools.filter((tool) => tool.status === "available");
+  const declared = declaredTools().map((tool) => ({
+    ...tool,
+    status: "unavailable",
+    connection: null,
+  }));
 
   return (
     <>
       <JarvisHeading
         eyebrow="Tool Armory"
         title="Tools"
-        sub="The shelf. Everything Forge can do is declared here, with the level it runs at and whether your word is required first."
-        meta={`${connected} connected · ${ready.length} ready · ${pending.length} need setup · ${unavailable.length} not implemented`}
+        sub="What Forge intends to offer, with the capability each tool needs and whether your word is required first."
+        meta={`${declared.length} declared · 0 connected`}
       />
 
       <div className="jv-stack" style={{ marginTop: 12 }}>
-        <JarvisSection title="Connected" meta={connected}>
-          <div className="jv-armory">
-            {tools
-              .filter((tool) => tool.status === "connected")
-              .map((tool) => (
-                <ArmoryTile key={tool.id} tool={tool} />
-              ))}
-          </div>
-        </JarvisSection>
+        <div className="jv-notice wait">
+          <span className="jv-mono">not connected</span>
+          No integration is connected in this phase. Nothing on this shelf can act,
+          and no tile claims otherwise.
+        </div>
 
-        <JarvisSection title="Ready to use" meta={ready.length}>
+        <JarvisSection title="Declared tools" meta={declared.length}>
           <div className="jv-armory">
-            {ready.map((tool) => (
+            {declared.map((tool) => (
               <ArmoryTile key={tool.id} tool={tool} />
             ))}
           </div>
-        </JarvisSection>
-
-        <JarvisSection title="Needs setup" meta={pending.length}>
-          <div className="jv-armory">
-            {pending.map((tool) => (
-              <ArmoryTile key={tool.id} tool={tool} />
-            ))}
-          </div>
-        </JarvisSection>
-
-        <JarvisSection title="Declared, not implemented" meta={unavailable.length}>
-          <div className="jv-armory">
-            {unavailable.map((tool) => (
-              <ArmoryTile key={tool.id} tool={tool} />
-            ))}
-          </div>
-          <p className="jv-sub" style={{ marginTop: 8 }}>
-            Declared tools have no adapter yet. Jarvis will refuse them rather
-            than pretend they worked, and nothing on this shelf is implied to
-            work until it says ready or connected.
-          </p>
         </JarvisSection>
 
         <JarvisSection title="Not in this build">
@@ -76,6 +56,13 @@ export default function ToolArmoryPage() {
           <p className="jv-sub" style={{ marginTop: 8 }}>
             The reference build drives these from the local machine. They stay
             visibly unavailable here rather than hiding the controls.
+          </p>
+        </JarvisSection>
+
+        <JarvisSection title="Connections" meta="none">
+          <p className="jv-sub">
+            Workspace connections arrive with the tool gateway in a later phase.
+            Until then this page reports intent, not capability.
           </p>
         </JarvisSection>
       </div>

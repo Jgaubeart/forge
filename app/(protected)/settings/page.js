@@ -4,7 +4,7 @@ import {
   JarvisSection,
 } from "@/components/jarvis/shell";
 import { requireUser } from "@/lib/auth";
-import { AGENTS, FLEET } from "@/lib/jarvis-fixtures";
+import { AGENTS, FLEET, agentBySlug } from "@/lib/forge/agents";
 
 export default async function SettingsPage() {
   const user = await requireUser();
@@ -48,12 +48,12 @@ export default async function SettingsPage() {
         <JarvisSection title="Fleet" meta={`${AGENTS.length} agents`}>
           <div className="jv-team">
             {FLEET.members.map((member) => (
-              <span className="jv-worker" key={member.name}>
+              <span className="jv-worker" key={member.slug}>
                 <span
                   className="jv-dot lg on"
                   style={{ background: "currentColor", color: "#62dbff" }}
                 />
-                {member.name}
+                {agentBySlug(member.slug)?.name ?? member.slug.toUpperCase()}
                 <em>{member.role}</em>
               </span>
             ))}
