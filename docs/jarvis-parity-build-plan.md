@@ -297,9 +297,118 @@ cannot be recorded.
 
 ## Phase 6 — runtime adapter boundary
 
-Define the server-side boundary the UI calls: authorize, build context, create
-mission records, submit, mirror status, append events. No React component talks
-to Hermes.
+**Architecture this phase establishes.** Nothing above the runtime interface
+knows how work is executed, and nothing below it knows about Forge's people,
+workspaces, or permissions.
+
+```
+KORBEN                      the operator's front door
+  ↓
+JARVIS                      the orchestrator
+  ↓
+Forge web / control layer   auth · workspaces · agents · mission state ·
+  ↓                         permissions · approvals · receipts · history · UI
+Runtime interface           lib/forge/runtime — Forge-owned, runtime-neutral
+  ↓
+Hermes                      the execution runtime
+  ↓
+specialist execution        model calls, tools, subagents, retries, lifecycle
+```
+
+**Naming rule, restated because it is easy to get wrong.** `forge.korbenos.com`
+is the web application. JARVIS is the orchestrator. **FORGE remains the
+maker/builder specialist agent** in the Fleet — it is not a second orchestrator
+and not the web app. Hermes is the execution harness.
+
+**Runtime interface** — `lib/forge/runtime/contract.js` defines the eight methods
+the rest of Forge may use — `getCapabilities`, `health`, `createRun`, `getRun`,
+`getRunEvents`, `stopRun`, `resolveApproval`, `steerRun` — together with
+`assertRuntimeAdapter`, which fails loudly when an adapter is incomplete. Any
+adapter that satisfies the interface is interchangeable: Hermes today, the test
+fake in CI, something else later.
+
+**Normalized types** — `lib/forge/runtime/types.js` converts runtime payloads
+into Forge shapes at the boundary: `RuntimeHealth`, `RuntimeCapabilities`,
+`RuntimeRun`, `RuntimeEvent`, `RuntimeCreateRequest`, `RuntimeApprovalDecision`.
+Hermes's status vocabulary is mapped onto the mission vocabulary Forge already
+uses (`succeeded` → `completed`, `approval_required` → `waiting_approval`,
+`stopped` → `cancelled`), run output is reduced to a bounded summary, and event
+metadata is flattened to primitives so a nested object can never smuggle a
+credential across.
+
+**Hermes adapter** — `lib/forge/runtime/hermes-adapter.js` is the only place
+Hermes HTTP detail lives. It authenticates server-side, maps Forge calls onto the
+existing `lib/hermes/client.js` (reused, extended additively with run-events and
+steering), maps responses back to normalized objects, enforces its own deadline,
+and converts every failure into a Forge-owned error. It holds no agent business
+logic. `lib/forge/runtime/index.js` is the single server-only entry point
+(`getForgeRuntime()`), and `runtimeStatus()` feeds one honest status line into the
+Mission Bay legend.
+
+**Configuration** — `HERMES_API_URL` and `HERMES_API_KEY`, server-only, never
+`NEXT_PUBLIC_`. `hermesConfigState()` reads them without throwing, and an
+unconfigured deployment gets a plain `runtime_not_configured` state and the
+legend reads "Runtime not configured" — no crash, no invented success.
+
+**Credential boundary** — the browser never calls Hermes and never receives the
+key. A test walks every file under `app/` and `components/` and fails if any of
+them mentions `NEXT_PUBLIC_HERMES` or `HERMES_API_KEY`, imports `lib/hermes/client`
+(server route handlers under `app/api/` excepted), or — for client components —
+imports the server runtime at all. The adapter itself exposes no key-shaped
+property, which the live check confirms.
+
+**Context and policy boundary** — `lib/forge/runtime/context.js` builds the safe
+mission context (operator brief, agent instructions, capability grants with their
+ceilings, connection *references*, workspace identity, policy, delegation flag)
+and refuses credential-shaped keys or values (`api_key`, `secret`, `token`,
+bearer strings, `eyJ…` JWTs, service-role tokens) by mechanical check rather than
+by convention. The rule is encoded, not just written down: **Forge decides what
+an agent may receive before Hermes sees the request.** Workspace access, business
+data, connection credentials, and dangerous-action authorization are control-plane
+decisions; Hermes does not make them. `buildRuntimeCreateRequest` defines the
+future launch shape (mission id, workspace id, agent slug, fleet id, mission kind,
+brief, context, capabilities, policy, correlation) and nothing dispatches it.
+
+**Error model** — `lib/forge/runtime/errors.js` gives every failure a Forge code:
+`runtime_not_configured`, `runtime_unreachable`, `runtime_unauthorized`,
+`runtime_timeout`, `runtime_bad_response`, `runtime_run_not_found`,
+`runtime_rejected`, plus `runtime_not_implemented` and `runtime_invalid_request`.
+Only a short, safe detail survives normalization; full upstream payloads are never
+forwarded.
+
+**Fake runtime** — `lib/forge/runtime/fake-runtime.js` implements the same
+interface for tests: healthy, unavailable, and not-configured modes, plus fake
+runs, events, stop, approval, and steering responses. It is never wired into a
+production path — `lib/forge/runtime/index.js` only ever builds the Hermes
+adapter — and the Mission Bay UI never reads it.
+
+### Live verification against `https://hermes.forge.korbenos.com`
+
+The endpoint resolved and answered. What could be proved without a Forge
+deployment key, through the real client and the real adapter over the network:
+
+| Check | Result |
+| --- | --- |
+| `GET /health` (anonymous) | `200` — `{"status":"ok","platform":"hermes-agent","version":"0.21.2"}` |
+| `GET /health/detailed`, `GET /v1/capabilities`, `POST /v1/runs` (anonymous) | `401` `gateway_auth_failed` — the gateway is genuinely keyed |
+| The same calls with a wrong key | `401`, normalized to `runtime_unauthorized` with a safe message and no upstream body |
+| Adapter with no key | `runtime_not_configured`, no crash, no key-shaped property on the adapter |
+| Adapter against an unresolvable host and a closed port | `runtime_unreachable` |
+| Adapter against a blackholed host with an 800 ms budget | `runtime_timeout` after 811 ms |
+
+**Fix made during this phase** (the only code change beyond the boundary itself):
+the adapter accepted a `timeoutMs` that nothing enforced, so a hung runtime was
+bounded only by the HTTP client's own 10 s default — the live blackhole probe
+waited the full 10 s against an 800 ms budget. The adapter now owns the deadline
+through its own race, and a test holds it there.
+
+**Not yet verified:** authenticated `health` and `capabilities` against the live
+runtime need `HERMES_API_KEY`, which is not present in this environment — the
+gateway confirms it is keyed, so the calls cannot be proved without it. Phase 6
+is therefore **code complete but not marked complete**: the boundary, its
+normalization, its error model, and its credential isolation are all implemented
+and tested, and the authenticated live checks remain outstanding until the key is
+configured.
 
 ## Phase 7 — Hermes single-agent execution
 

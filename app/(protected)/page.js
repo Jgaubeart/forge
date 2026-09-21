@@ -12,6 +12,7 @@ import { requireUser } from "@/lib/auth";
 import { FLEET, agentBySlug } from "@/lib/forge/agents";
 import { MISSION_KINDS, isActiveMission, isTerminalMission } from "@/lib/forge/missions";
 import { loadMissionBayState } from "@/lib/forge/persistence/state.js";
+import { runtimeStatus } from "@/lib/forge/runtime";
 import { createWorkspaceAction } from "./onboarding/actions";
 import { startMissionAction, cancelMissionAction } from "./missions/actions";
 
@@ -24,6 +25,9 @@ import { startMissionAction, cancelMissionAction } from "./missions/actions";
 export default async function MissionBayPage() {
   const user = await requireUser();
   const state = await loadMissionBayState(user.id);
+  // One honest line about the execution runtime. A health call when configured,
+  // and an explicit "not configured" state otherwise.
+  const runtime = await runtimeStatus();
 
   if (!state.ok) {
     return (
@@ -72,6 +76,16 @@ export default async function MissionBayPage() {
         meta={`${state.membership.workspace.name} · ${active.length} active · ${awaiting.length} awaiting your word`}
         actions={
           <div className="jv-legend">
+            <span>
+              <span
+                className="jv-dot lg on"
+                style={{
+                  background: runtime.tone === "accent" ? "#34d399" : runtime.tone === "warn" ? "#f4a93a" : "#334155",
+                  color: runtime.tone === "accent" ? "#34d399" : runtime.tone === "warn" ? "#f4a93a" : "#334155",
+                }}
+              />
+              Hermes Runtime · {runtime.label}
+            </span>
             {FLEET.members.map((member) => (
               <span key={member.slug}>
                 <AgentDot slug={member.slug} />
