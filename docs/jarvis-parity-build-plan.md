@@ -295,7 +295,7 @@ and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for the app, and
 Without the service-role key missions still save and the UI says their history
 cannot be recorded.
 
-## Phase 6 — runtime adapter boundary
+## Phase 6 — runtime adapter boundary (complete)
 
 **Architecture this phase establishes.** Nothing above the runtime interface
 knows how work is executed, and nothing below it knows about Forge's people,
@@ -384,31 +384,44 @@ adapter — and the Mission Bay UI never reads it.
 
 ### Live verification against `https://hermes.forge.korbenos.com`
 
-The endpoint resolved and answered. What could be proved without a Forge
-deployment key, through the real client and the real adapter over the network:
+Every check below ran through the real client and the real adapter, over the
+network, with the deployment's own `HERMES_API_URL` / `HERMES_API_KEY`. No run
+was created: the phase proves the boundary and the two safe inspection calls.
 
 | Check | Result |
 | --- | --- |
-| `GET /health` (anonymous) | `200` — `{"status":"ok","platform":"hermes-agent","version":"0.21.2"}` |
-| `GET /health/detailed`, `GET /v1/capabilities`, `POST /v1/runs` (anonymous) | `401` `gateway_auth_failed` — the gateway is genuinely keyed |
-| The same calls with a wrong key | `401`, normalized to `runtime_unauthorized` with a safe message and no upstream body |
+| Authenticated `health()` through the adapter | healthy — `{state: "healthy", status: "ok", detail: {version: "0.21.2"}}` |
+| Authenticated `getCapabilities()` through the adapter | 22 normalized feature names, led by `run_submission`, `run_status`, `run_events_sse`, `run_stop`, `run_steer`, `run_approval_response` |
+| `RuntimeHealth` normalization | exactly `state` / `status` / `detail` / `checkedAt`, no raw payload |
+| `RuntimeCapabilities` normalization | exactly `agents` / `features` / `raw`; the payload's `platform`, `model`, `auth`, `runtime`, and `endpoints` fields do not cross the boundary |
 | Adapter with no key | `runtime_not_configured`, no crash, no key-shaped property on the adapter |
+| Adapter with a rejected key | `401` → `runtime_unauthorized`, safe message, `detail: null`, key never echoed |
 | Adapter against an unresolvable host and a closed port | `runtime_unreachable` |
 | Adapter against a blackholed host with an 800 ms budget | `runtime_timeout` after 811 ms |
+| Anonymous `GET /health/detailed`, `GET /v1/capabilities`, `POST /v1/runs` | `401` `gateway_auth_failed` — the gateway is genuinely keyed, so the browser can never reach the runtime directly |
+| Credential scan of `app/`, `components/`, `lib/`, `tests/`, `docs/`, `supabase/`, `.next/static`, `.next/server` | the key value appears in zero files; no `NEXT_PUBLIC_HERMES*` variable exists |
+| `npm test` | 76 passing, 0 failing |
+| `npm run build` | clean |
 
-**Fix made during this phase** (the only code change beyond the boundary itself):
-the adapter accepted a `timeoutMs` that nothing enforced, so a hung runtime was
-bounded only by the HTTP client's own 10 s default — the live blackhole probe
-waited the full 10 s against an 800 ms budget. The adapter now owns the deadline
-through its own race, and a test holds it there.
+**Fixes made during this phase** — two real defects, both found by the live pass
+rather than assumed away:
 
-**Not yet verified:** authenticated `health` and `capabilities` against the live
-runtime need `HERMES_API_KEY`, which is not present in this environment — the
-gateway confirms it is keyed, so the calls cannot be proved without it. Phase 6
-is therefore **code complete but not marked complete**: the boundary, its
-normalization, its error model, and its credential isolation are all implemented
-and tested, and the authenticated live checks remain outstanding until the key is
-configured.
+1. The adapter accepted a `timeoutMs` that nothing enforced, so a hung runtime
+   was bounded only by the HTTP client's own 10 s default — the blackhole probe
+   waited the full 10 s against an 800 ms budget. The adapter now owns the
+   deadline through its own race, and a test holds it there.
+2. The live runtime reports capabilities as a **name → flag map**, not a list.
+   The normalizer read it as an array and silently returned nothing, which would
+   have made a fully capable runtime look featureless. It now reads the map,
+   keeps the enabled keys, and drops entries whose descriptor says they are
+   switched off. A test pins the live shape.
+
+The first live attempt also failed authentication because the key that had been
+placed in the local environment file was not the one the running gateway holds;
+the gateway answered the byte-identical generic `401` for every transport
+(bearer, raw, `X-API-Key`, query parameter, Basic, cookie) until the correct
+`API_SERVER_KEY` was supplied. The credential was neither created nor rotated
+during this work.
 
 ## Phase 7 — Hermes single-agent execution
 

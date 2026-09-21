@@ -105,6 +105,41 @@ test("Hermes payloads normalize into Forge shapes", () => {
     "approvals",
   ]);
   assert.deepEqual(normalizeCapabilities(null).features, []);
+
+  // The live runtime reports capabilities as a name → flag map, with some
+  // entries carrying a nested descriptor instead of a plain boolean.
+  const live = normalizeCapabilities({
+    object: "hermes.capabilities",
+    platform: "hermes-agent",
+    model: "gpt-5",
+    auth: { type: "bearer", required: true },
+    runtime: { mode: "server", tool_execution: "server", split_runtime: true },
+    features: {
+      chat_completions: true,
+      run_submission: true,
+      run_status: true,
+      run_events_sse: true,
+      run_stop: true,
+      run_steer: true,
+      run_approval_response: true,
+      runs_idempotency: { supported: true, durable: true, retention_seconds: 86400 },
+      browser_extension_control: { enabled: false, protocol_version: 1 },
+      realtime_voice: false,
+      audio_api: null,
+    },
+  });
+  assert.deepEqual(live.features, [
+    "chat_completions",
+    "run_submission",
+    "run_status",
+    "run_events_sse",
+    "run_stop",
+    "run_steer",
+    "run_approval_response",
+    "runs_idempotency",
+  ]);
+  assert.deepEqual(live.agents, [], "a runtime that advertises no agents reports none");
+  assert.equal(live.raw, true);
 });
 
 // 3/4 ----------------------------------------------------------------------
