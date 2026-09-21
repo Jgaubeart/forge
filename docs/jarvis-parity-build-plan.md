@@ -144,11 +144,50 @@ workspaces 0, workspace memberships 0, tasks 0, run_events 0, approvals 0,
 agents 9, fleets 1, fleet_members 3 — a clean, empty Forge with the workforce
 seeded and no test data. Nothing in the unrelated `portal` project was touched.
 
-**Final live verification pass: attempted, blocked on credentials.** This
-environment holds no Forge API keys — only a Supabase access token scoped to a
-different organisation, which returns 403 for the Forge project ref — so sign-in,
-onboarding, mission persistence, History reads, approval persistence, and
-cross-workspace RLS could not be exercised against the real project from here.
+**Final live verification pass: complete and passing.**
+
+Run against the real Forge project (`orxprwiqjtnpgrrheylr`) with the dev server
+running outside the sandbox (a sandboxed server cannot reach Supabase, which is
+what made earlier attempts look like auth failures):
+
+- **Auth:** signing in through the app works; a first-run user lands on the
+  one-step onboarding.
+- **Onboarding:** completes and lands in Mission Bay. The organisation, its
+  membership, the workspace, its membership, and the two read-level capability
+  grants are all created, and `created_by` / `user_id` are the session's user.
+- **Mission:** dispatching from the command bar records one mission (`kind`
+  warroom, `status` queued, `stage` queued, `reached_stages ["queued"]`,
+  `requested_by` = the signed-in user) and it survives a refresh, with one card
+  rendered afterwards.
+- **History/events:** the persisted `mission.created` event appears with an
+  operator-readable label and the actor set.
+- **Forged events:** a signed-in browser inserting into `run_events` is refused
+  (401); event writes only happen through the trusted server path.
+- **Approvals:** staging a pending approval succeeds, reading it back reflects the
+  domain model, a first consumption marks it consumed, and a second consumption
+  matches zero rows — single-use holds. No external action is executed.
+- **Cross-workspace RLS:** user B reads nothing of user A's workspace, tasks,
+  events, approvals, or receipts, and an attempted mutation of A's task leaves it
+  unchanged.
+- **Agents/Fleet:** 9 agents with unique slugs; The Fleet still has JARVIS as lead
+  with SCOUT, FORGE, and SAGE as its three members.
+- **Visual:** authenticated Mission Bay at 1440×1000, 1280×800, and 414×900 — no
+  horizontal overflow, no console errors.
+
+Two defects were found and fixed live. The database one — recursive RLS on
+`organization_memberships`, which made every `organizations` insert fail — was
+fixed by the `fix_onboarding_rls_recursion` migration applied from outside this
+environment. The application one was the insert/read ordering: an `INSERT …
+RETURNING` must also satisfy the table's SELECT policy, so onboarding now inserts
+the organisation and workspace plainly, then reads them back after the matching
+membership exists (the organisation read-back uses the server's trusted client,
+because the creator cannot see their own organisation until the membership row
+lands).
+
+Verification data was removed afterwards: all rows created for the run (tasks,
+run_events, approvals, workspaces, memberships, organisations) and the 10
+temporary auth users, returning the database to organisations 0, workspaces 0,
+tasks 0, run_events 0, approvals 0 with 9 agents, 1 fleet, and 3 fleet members.
 
 What *was* checked against Forge with the publishable key only (read-only):
 `/auth/v1/settings` answers 200 and reports `disable_signup: false` with
