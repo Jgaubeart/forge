@@ -4,44 +4,48 @@ import {
   isHermesConfigured,
 } from "../../../../lib/hermes/client";
 
-// Temporary debugging helper: returns a safe subset of an error's cause so the
-// response never leaks secrets, headers, or the Hermes API key.
-function sanitizeCause(cause) {
-  if (cause === undefined || cause === null) {
+// Temporary debugging helper. This endpoint is public, so only these fields are
+// ever returned: arbitrary properties (which can hold request config, headers,
+// or the Hermes API key) are never copied.
+const CAUSE_FIELDS = ["name", "message", "code"];
+const CAUSE_DEPTH_LIMIT = 3;
+
+function sanitizeCause(cause, depth = 0) {
+  if (cause === undefined || cause === null || depth > CAUSE_DEPTH_LIMIT) {
     return null;
   }
 
-  if (typeof cause !== "object") {
-    return String(cause);
+  if (typeof cause === "string" || typeof cause === "number") {
+    return cause;
   }
 
-  const sensitive = /authorization|header|token|secret|api[_-]?key|cookie|password/i;
+  if (typeof cause !== "object") {
+    return null;
+  }
+
+  if (Array.isArray(cause)) {
+    return cause.map((entry) => sanitizeCause(entry, depth + 1));
+  }
+
   const safe = {};
 
-  for (const key of ["name", "message", "code"]) {
+  for (const key of CAUSE_FIELDS) {
     const value = cause[key];
     if (typeof value === "string" || typeof value === "number") {
       safe[key] = value;
     }
   }
 
-  for (const [key, value] of Object.entries(cause)) {
-    if (sensitive.test(key)) {
-      continue;
-    }
-    if (
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean" ||
-      value === null
-    ) {
-      safe[key] = value;
-    } else if (value !== undefined) {
-      safe[key] = String(value);
+  // Follow nested causes (e.g. AggregateError.errors) so the underlying network
+  // failure is still visible, applying the same allowlist at each level.
+  for (const key of ["cause", "errors"]) {
+    const nested = cause[key];
+    if (nested !== undefined && nested !== null) {
+      safe[key] = sanitizeCause(nested, depth + 1);
     }
   }
 
-  return safe;
+  return Object.keys(safe).length > 0 ? safe : null;
 }
 
 export async function GET() {
