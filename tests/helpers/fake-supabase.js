@@ -41,7 +41,11 @@ export function createFakeSupabase({ userId = null, memberships = [], tables = {
     }
     if (table === "workspace_memberships") return row.user_id === userId;
     if (table === "organization_memberships") return row.user_id === userId;
-    if (table === "workspaces") return workspaceIds.has(row.id);
+    // Mirrors workspaces_select_member after fix_onboarding_rls_recursion: a
+    // member can read a workspace, and so can the person who created it — which
+    // is what lets onboarding read back the row it just inserted, before the
+    // membership exists.
+    if (table === "workspaces") return workspaceIds.has(row.id) || row.created_by === userId;
     if (table === "organizations") {
       return db.organization_memberships.some(
         (m) => m.organization_id === row.id && m.user_id === userId
