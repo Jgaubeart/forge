@@ -2,6 +2,27 @@
 
 > Forge is a shared, permission-aware AI workforce and organizational brain. Hermes runs the workers. Forge supplies the identities, contexts, knowledge, tools, permissions, workflows, history, and interface that make those workers useful across many people and businesses.
 
+## This is a port, not a new product
+
+Forge is the web/Supabase/Vercel port of the Jarvis control architecture, with Hermes replacing Jarvis's custom Codex worker runtime. The product behaviour is preserved; only the runtime underneath changed.
+
+| Jarvis concept | Forge equivalent |
+| --- | --- |
+| Mission Bay | Durable mission record (`tasks`) plus the Mission Bay surface at `/` |
+| Mission kinds (FLEET, BUILD-ME-AN-APP, REAPER, WAR ROOM, ANNOUNCE, HATERS) | `lib/forge/missions/catalog.js` |
+| Jarvis workers running Codex | Hermes runs; Forge agents are the catalog (`JARVIS`, `SCOUT`, `FORGE`, `SAGE`, `REAPER`, `WARROOM`, `HERALD`, `HATERS`) |
+| The Fleet (SCOUT + FORGE + SAGE) | `fleets` + `fleet_members`, child runs under the mission's primary run |
+| Mission events (`spawn`, `stage`, `tool`, `done`, `error`) | `run_events`, including `worker.spawned`, `worker.stage`, `agent.delegated`, `tool.*`, `approval.*` |
+| Confirm cards / `APPROVALS.stage` | `approvals` with a hashed, immutable staged payload |
+| Tool Armory (`tools.py` registry) | `lib/forge/runtime/tools/registry.js` |
+| Connected tools / OAuth state | `connections` + the tool gateway, which resolves credentials server-side |
+| Tool receipts | `action_receipts`, with `accepted` vs `confirmed` |
+| Mission cancel | `runController.cancelMission` calling the Hermes stop endpoint |
+| `exec_deny` / draft-safe workers | Capability ceilings per agent plus the gateway's action-level check |
+| Desktop-only surfaces (HOLO, EYES, Hue, phone calls, local vault) | Not ported. The ideas that matter — explicit consent, controlled tools, operator visibility, receipts — are. |
+
+Mission kinds, the seeded agents, and the fleet are ported from the reference build's own definitions; the agent instructions in `005_forge_fleet.sql` are its prompts with desktop-only directives removed.
+
 ## Request path
 
 ```

@@ -17,6 +17,8 @@ const READ_TOOL = defineTool({
   description: "Read a thing.",
   capability: "email.read",
   actionLevel: "read",
+  // Trusted reads are the only tools that run without operator confirmation.
+  trustedRead: true,
   available: true,
   inputSchema: { query: { type: "string", required: true, maxLength: 60 } },
 });

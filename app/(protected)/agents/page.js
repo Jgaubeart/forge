@@ -11,16 +11,17 @@ import {
 } from "@/components/forge/ui";
 import { requireForgeContext } from "@/lib/forge/context";
 import { groupBy } from "@/lib/forge/db";
-import { loadWork, listAgents } from "@/lib/forge/queries";
+import { listFleets, loadWork, listAgents } from "@/lib/forge/queries";
 import { agentState } from "@/lib/forge/status";
 
 export default async function AgentsPage() {
   const context = await requireForgeContext();
   const supabase = context.supabase;
 
-  const [agentsResult, work] = await Promise.all([
+  const [agentsResult, work, fleetsResult] = await Promise.all([
     listAgents(supabase),
     loadWork(supabase, context.workspace?.id, { limit: 100 }),
+    listFleets(supabase),
   ]);
 
   const agents = agentsResult.agents;
@@ -50,6 +51,27 @@ export default async function AgentsPage() {
             Agent data could not be fully loaded. Showing what is available.
           </Notice>
         ) : null}
+
+        {fleetsResult.fleets.map((fleet) => (
+          <Section
+            key={fleet.id}
+            title={fleet.name}
+            meta={`${fleet.members.length} agents`}
+          >
+            <div className="forge-team">
+              {fleet.members.map((member) => (
+                <span className="forge-team-chip" key={member.slug}>
+                  <Dot tone="accent" />
+                  {member.name}
+                  <em>{member.role}</em>
+                </span>
+              ))}
+            </div>
+            {fleet.description ? (
+              <p className="forge-meta-faint forge-pad-top">{fleet.description}</p>
+            ) : null}
+          </Section>
+        ))}
 
         <Section title="Catalog">
           {agents.length > 0 ? (

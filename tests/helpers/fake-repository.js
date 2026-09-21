@@ -17,6 +17,8 @@ export function createFakeRepository(seed = {}) {
     organizations: seed.organizations ?? [],
     memberships: seed.memberships ?? [],
     agents: seed.agents ?? [],
+    fleets: seed.fleets ?? [],
+    fleetMembers: seed.fleetMembers ?? [],
     agentCapabilities: seed.agentCapabilities ?? {},
     membershipCapabilities: seed.membershipCapabilities ?? {},
     connections: seed.connections ?? [],
@@ -83,6 +85,27 @@ export function createFakeRepository(seed = {}) {
 
     async getAgentById(agentId) {
       return state.agents.find((agent) => agent.id === agentId) ?? null;
+    },
+
+    async getAgentBySlug(slug) {
+      return state.agents.find((agent) => agent.slug === slug) ?? null;
+    },
+
+    async getFleetBySlug(slug) {
+      const fleet = state.fleets.find((entry) => entry.slug === slug) ?? null;
+      if (!fleet) return null;
+
+      const members = state.fleetMembers
+        .filter((member) => member.fleetId === fleet.id)
+        .sort((a, b) => a.position - b.position)
+        .map((member) => ({
+          agentId: member.agentId,
+          role: member.role,
+          position: member.position,
+          agent: state.agents.find((agent) => agent.id === member.agentId) ?? null,
+        }));
+
+      return { ...fleet, members };
     },
 
     async getAgentCapabilities(agentId) {
@@ -173,6 +196,10 @@ export function createFakeRepository(seed = {}) {
         status: "queued",
         currentStep: null,
         policy: {},
+        kind: "general",
+        icon: null,
+        fleetId: null,
+        result: {},
         createdAt: new Date(),
         updatedAt: new Date(),
         startedAt: null,
@@ -227,7 +254,11 @@ export function createFakeRepository(seed = {}) {
     },
 
     async insertReceipt(receipt) {
-      const stored = { id: nextId("receipt"), ...receipt };
+      const stored = {
+        id: nextId("receipt"),
+        confirmation: receipt.success ? "accepted" : "failed",
+        ...receipt,
+      };
       state.receipts.push(stored);
       return stored;
     },
@@ -279,12 +310,58 @@ export function createFixture(overrides = {}) {
     agents: [
       {
         id: "agent-1",
-        name: "Inbox Triage",
         slug: "inbox-triage",
+        name: "Inbox Triage",
         instructions: "Classify and draft. Never send.",
         isActive: true,
         delegationEnabled: false,
       },
+      {
+        id: "agent-jarvis",
+        slug: "jarvis",
+        name: "JARVIS",
+        instructions: "Coordinate the mission and assemble the result.",
+        isActive: true,
+        delegationEnabled: true,
+      },
+      {
+        id: "agent-scout",
+        slug: "scout",
+        name: "SCOUT",
+        instructions: "Recon memo.",
+        isActive: true,
+        delegationEnabled: false,
+      },
+      {
+        id: "agent-forge",
+        slug: "forge",
+        name: "FORGE",
+        instructions: "Produce the draft.",
+        isActive: true,
+        delegationEnabled: false,
+      },
+      {
+        id: "agent-sage",
+        slug: "sage",
+        name: "SAGE",
+        instructions: "Critique and next actions.",
+        isActive: true,
+        delegationEnabled: false,
+      },
+    ],
+    fleets: [
+      {
+        id: "fleet-1",
+        slug: "the-fleet",
+        name: "The Fleet",
+        description: "Recon, draft, critique.",
+        leadAgentId: "agent-jarvis",
+      },
+    ],
+    fleetMembers: [
+      { fleetId: "fleet-1", agentId: "agent-scout", role: "recon", position: 1 },
+      { fleetId: "fleet-1", agentId: "agent-forge", role: "maker", position: 2 },
+      { fleetId: "fleet-1", agentId: "agent-sage", role: "critic", position: 3 },
     ],
     agentCapabilities: {
       "agent-1": [
@@ -292,12 +369,24 @@ export function createFixture(overrides = {}) {
         { capability: "email.draft", max_action_level: "draft" },
         { capability: "workspace.read", max_action_level: "read" },
       ],
+      "agent-jarvis": [
+        { capability: "mission.coordinate", max_action_level: "read" },
+        { capability: "workspace.read", max_action_level: "read" },
+      ],
+      "agent-scout": [{ capability: "research.read", max_action_level: "read" }],
+      "agent-forge": [{ capability: "artifact.draft", max_action_level: "draft" }],
+      "agent-sage": [{ capability: "artifact.review", max_action_level: "read" }],
     },
     membershipCapabilities: {
       "mem-1": [
         { capability: "email.read", action_level: "read" },
         { capability: "email.draft", action_level: "draft" },
         { capability: "workspace.read", action_level: "read" },
+        { capability: "mission.coordinate", action_level: "read" },
+        { capability: "research.read", action_level: "read" },
+        { capability: "artifact.draft", action_level: "draft" },
+        { capability: "artifact.review", action_level: "read" },
+        { capability: "email.send", action_level: "execute" },
       ],
       "mem-2": [
         { capability: "email.read", action_level: "read" },

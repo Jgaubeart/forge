@@ -90,26 +90,24 @@ function Icon({ name }) {
 
 const NAV_GROUPS = [
   {
-    label: "Workforce",
+    label: "Mission control",
     items: [
-      { href: "/", label: "Overview", icon: "overview" },
-      { href: "/agents", label: "Agents", icon: "agents" },
-      { href: "/departments", label: "Departments", icon: "departments" },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      { href: "/tasks", label: "Tasks", icon: "tasks" },
-      { href: "/runs", label: "Runs", icon: "runs" },
+      { href: "/", label: "Mission Bay", icon: "overview" },
+      { href: "/missions", label: "Missions", icon: "tasks" },
       { href: "/approvals", label: "Approvals", icon: "approvals" },
     ],
   },
   {
-    label: "Workspace",
+    label: "Workforce",
     items: [
-      { href: "/connections", label: "Connections", icon: "connections" },
-      { href: "/activity", label: "Activity", icon: "activity" },
+      { href: "/agents", label: "Agents", icon: "agents" },
+      { href: "/tools", label: "Tools", icon: "departments" },
+    ],
+  },
+  {
+    label: "Record",
+    items: [
+      { href: "/history", label: "History", icon: "runs" },
       { href: "/settings", label: "Settings", icon: "settings" },
     ],
   },
