@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { ActivityTimeline, AgentLine, TaskRow } from "@/components/forge/lists";
+import { AgentLine, MissionTimeline, RunRow, TaskRow } from "@/components/forge/lists";
 import {
   ActionLevel,
   Dot,
@@ -15,46 +15,47 @@ import { requireForgeContext } from "@/lib/forge/context";
 import { groupBy } from "@/lib/forge/db";
 import { actorLabel, formatWhen } from "@/lib/forge/format";
 import {
-  listActivity,
   listAgents,
   listConnections,
+  listRunEvents,
   loadWork,
 } from "@/lib/forge/queries";
 import {
   connectionStatusMeta,
+  isActiveMission,
   isFailedTask,
-  isRunningTask,
-  isWaitingTask,
 } from "@/lib/forge/status";
 
 const WORK_WINDOW = 100;
-const CURRENT_WORK_LIMIT = 6;
+const MISSION_LIMIT = 6;
+const RUN_LIMIT = 5;
 const ATTENTION_LIMIT = 3;
-const ACTIVITY_LIMIT = 8;
+const EVENT_LIMIT = 8;
 const DEPARTMENT_LIMIT = 3;
 const AGENTS_PER_DEPARTMENT = 4;
+
+const RUNNING_STATUSES = ["running", "planning"];
+const WAITING_STATUSES = ["waiting", "waiting_approval"];
+const ACTIVE_RUN_STATUSES = ["queued", "planning", "running", "waiting_approval"];
 
 export default async function OverviewPage() {
   const context = await requireForgeContext();
   const { supabase, user, workspace, membership } = context;
 
-  const [agentsResult, work, connectionsResult, activityResult] =
-    await Promise.all([
-      listAgents(supabase),
-      loadWork(supabase, workspace?.id, { limit: WORK_WINDOW }),
-      listConnections(supabase, workspace?.id, membership?.id),
-      listActivity(supabase, workspace?.id, { limit: ACTIVITY_LIMIT }),
-    ]);
+  const [agentsResult, work, eventsResult, connectionsResult] = await Promise.all([
+    listAgents(supabase),
+    loadWork(supabase, workspace?.id, { limit: WORK_WINDOW }),
+    listRunEvents(supabase, { workspaceId: workspace?.id, limit: EVENT_LIMIT }),
+    listConnections(supabase, workspace?.id, membership?.id),
+  ]);
 
   const agents = agentsResult.agents;
   const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
-  const tasks = work.tasks;
-  const taskById = new Map(tasks.map((task) => [task.id, task]));
-  const taskTitles = new Map(
-    tasks.map((task) => [task.id, task.title])
-  );
+  const missions = work.tasks;
+  const taskById = new Map(missions.map((task) => [task.id, task]));
+  const taskTitles = new Map(missions.map((task) => [task.id, task.title]));
 
-  const tasksByAgent = groupBy(tasks, "agent_id");
+  const tasksByAgent = groupBy(missions, "agent_id");
   const runsByAgent = new Map();
   for (const run of work.runs) {
     const agentId = taskById.get(run.task_id)?.agent_id;
@@ -64,60 +65,52 @@ export default async function OverviewPage() {
     else runsByAgent.set(agentId, [run]);
   }
 
-  const workingAgents = new Set(
-    tasks
-      .filter((task) => isRunningTask(task.status))
-      .map((task) => task.agent_id)
+  const statusOf = (task) => String(task.status ?? "").toLowerCase();
+  const activeMissions = missions.filter((task) => isActiveMission(task.status));
+  const runningMissions = missions.filter((task) =>
+    RUNNING_STATUSES.includes(statusOf(task))
   );
-  const waitingAgents = new Set(
-    tasks
-      .filter((task) => isWaitingTask(task.status))
-      .map((task) => task.agent_id)
+  const waitingMissions = missions.filter((task) =>
+    WAITING_STATUSES.includes(statusOf(task))
   );
-  const errorAgents = new Set(
-    tasks.filter((task) => isFailedTask(task.status)).map((task) => task.agent_id)
+  const failedMissions = missions.filter((task) => isFailedTask(task.status));
+  const activeRuns = work.runs.filter((run) =>
+    ACTIVE_RUN_STATUSES.includes(String(run.status ?? "").toLowerCase())
   );
-  for (const run of work.runs) {
-    if (!isFailedRun(run)) continue;
-    const agentId = taskById.get(run.task_id)?.agent_id;
-    if (agentId) errorAgents.add(agentId);
-  }
-
+  const failedRuns = work.runs.filter(
+    (run) => String(run.status ?? "").toLowerCase() === "failed"
+  );
   const pendingApprovals = work.approvals.filter(
     (approval) => approval.status === "pending"
   );
-  const failedTasks = tasks.filter((task) => isFailedTask(task.status));
-  const failedRuns = work.runs.filter(isFailedRun);
   const problemConnections = connectionsResult.connections.filter(
-    (connection) => !isHealthyConnection(connection.status)
+    (connection) =>
+      !["active", "connected", "healthy"].includes(
+        String(connection.status ?? "").toLowerCase()
+      )
   );
-  const attentionCount =
-    pendingApprovals.length +
-    failedTasks.length +
-    failedRuns.length +
-    problemConnections.length;
 
-  const departmentGroups = groupAgentsByDepartment(agents).slice(
-    0,
-    DEPARTMENT_LIMIT
-  );
+  const attentionCount =
+    pendingApprovals.length + failedMissions.length + failedRuns.length + problemConnections.length;
+
+  const departmentGroups = groupAgentsByDepartment(agents).slice(0, DEPARTMENT_LIMIT);
 
   const partial =
     agentsResult.failed ||
     work.failed ||
-    connectionsResult.failed ||
-    activityResult.failed;
+    eventsResult.failed ||
+    connectionsResult.failed;
 
   return (
     <>
       <PageHeader
         eyebrow="Command center"
         title="Overview"
-        subtitle="What your workforce is doing, what needs you, and what happened recently."
+        subtitle="Durable missions, the runs working them, what needs you, and what just happened."
         meta={
           workspace
-            ? `${workspace.name} · ${agents.length} agent${
-                agents.length === 1 ? "" : "s"
+            ? `${workspace.name} · ${activeMissions.length} active mission${
+                activeMissions.length === 1 ? "" : "s"
               }${attentionCount > 0 ? ` · ${attentionCount} need attention` : ""}`
             : "No workspace membership yet"
         }
@@ -135,55 +128,55 @@ export default async function OverviewPage() {
             <MetricRow
               items={[
                 {
-                  label: "Active agents",
-                  value: agents.length,
-                  hint: "Shared catalog",
+                  label: "Active missions",
+                  value: activeMissions.length,
+                  hint: "Durable, independent of this page",
                 },
                 {
-                  label: "Working now",
-                  value: workingAgents.size,
-                  hint: "Running tasks",
+                  label: "Running now",
+                  value: runningMissions.length,
+                  hint: "Planning or executing",
                 },
                 {
-                  label: "Waiting",
-                  value: waitingAgents.size,
-                  hint: "Blocked or approval needed",
+                  label: "Waiting for approval",
+                  value: waitingMissions.length,
+                  hint: "Blocked on a human decision",
                 },
                 {
-                  label: "With errors",
-                  value: errorAgents.size,
-                  hint: "Failed work",
+                  label: "Failed work",
+                  value: failedMissions.length + failedRuns.length,
+                  hint: "Missions and runs",
                 },
               ]}
             />
 
             <div className="forge-grid forge-grid--split">
               <Section
-                title="Current work"
+                title="Current missions"
                 action={
-                  tasks.length > 0 ? (
+                  missions.length > 0 ? (
                     <Link className="forge-section-link" href="/tasks">
-                      All tasks
+                      All missions
                     </Link>
                   ) : null
                 }
               >
-                {tasks.length > 0 ? (
+                {missions.length > 0 ? (
                   <div className="forge-rows">
-                    {tasks.slice(0, CURRENT_WORK_LIMIT).map((task) => (
+                    {missions.slice(0, MISSION_LIMIT).map((mission) => (
                       <TaskRow
-                        key={task.id}
-                        task={task}
-                        agentName={agentsById.get(task.agent_id)?.name ?? null}
-                        requesterLabel={actorLabel(task.requested_by, user.id)}
+                        key={mission.id}
+                        task={mission}
+                        agentName={agentsById.get(mission.agent_id)?.name ?? null}
+                        requesterLabel={actorLabel(mission.requested_by, user.id)}
                       />
                     ))}
                   </div>
                 ) : (
                   <EmptyState
                     glyph="spark"
-                    title="No work yet"
-                    text="Tasks assigned to your workforce appear here with their status and action level."
+                    title="No missions yet"
+                    text="Missions submitted to your workforce appear here as durable records, with their state and current step."
                   />
                 )}
               </Section>
@@ -208,17 +201,11 @@ export default async function OverviewPage() {
                         <Dot tone="warn" />
                         <span className="forge-row-main">
                           <span className="forge-row-title">
-                            {agentsById.get(taskById.get(approval.task_id)?.agent_id)
-                              ?.name ?? "An agent"}{" "}
-                            needs approval
+                            {approval.tool ?? approval.capability} needs approval
                           </span>
                           <span className="forge-row-meta">
-                            <span className="forge-mono">
-                              {approval.capability}
-                            </span>
-                            <span>
-                              {taskTitles.get(approval.task_id) ?? "Task"}
-                            </span>
+                            <span className="forge-mono">{approval.capability}</span>
+                            <span>{taskTitles.get(approval.task_id) ?? "Mission"}</span>
                           </span>
                         </span>
                         <span className="forge-row-end">
@@ -231,57 +218,29 @@ export default async function OverviewPage() {
                       </Link>
                     ))}
 
-                    {failedTasks.slice(0, ATTENTION_LIMIT).map((task) => (
+                    {failedMissions.slice(0, ATTENTION_LIMIT).map((mission) => (
                       <Link
                         className="forge-row"
-                        href={`/tasks/${task.id}`}
-                        key={`task-${task.id}`}
+                        href={`/tasks/${mission.id}`}
+                        key={`mission-${mission.id}`}
                       >
                         <Dot tone="danger" />
                         <span className="forge-row-main">
-                          <span className="forge-row-title">
-                            {task.title}
-                          </span>
+                          <span className="forge-row-title">{mission.title}</span>
                           <span className="forge-row-meta">
-                            <span>Task failed</span>
+                            <span>{mission.currentStep ?? "Mission failed"}</span>
                             <span>
-                              <ActionLevel level={task.action_level} />
+                              <ActionLevel level={mission.action_level} />
                             </span>
                           </span>
                         </span>
                         <span className="forge-row-end">
                           <span className="forge-row-time">
-                            {formatWhen(task.updated_at)}
+                            {formatWhen(mission.updated_at)}
                           </span>
                         </span>
                       </Link>
                     ))}
-
-                    {failedRuns
-                      .filter(
-                        (run) => !failedTasks.some((task) => task.id === run.task_id)
-                      )
-                      .slice(0, ATTENTION_LIMIT)
-                      .map((run) => (
-                        <Link
-                          className="forge-row"
-                          href={`/tasks/${run.task_id}`}
-                          key={`run-${run.id}`}
-                        >
-                          <Dot tone="danger" />
-                          <span className="forge-row-main">
-                            <span className="forge-row-title">Run failed</span>
-                          <span className="forge-row-meta">
-                            <span>{taskTitles.get(run.task_id) ?? "Task"}</span>
-                            </span>
-                          </span>
-                          <span className="forge-row-end">
-                            <span className="forge-row-time">
-                              {formatWhen(run.created_at)}
-                            </span>
-                          </span>
-                        </Link>
-                      ))}
 
                     {problemConnections.slice(0, ATTENTION_LIMIT).map((connection) => {
                       const status = connectionStatusMeta(connection.status);
@@ -310,96 +269,115 @@ export default async function OverviewPage() {
                 )}
               </Section>
             </div>
+
+            <div className="forge-grid forge-grid--split">
+              <Section
+                title="Active runs"
+                action={
+                  work.runs.length > 0 ? (
+                    <Link className="forge-section-link" href="/runs">
+                      All runs
+                    </Link>
+                  ) : null
+                }
+              >
+                {activeRuns.length > 0 ? (
+                  <div className="forge-rows">
+                    {activeRuns.slice(0, RUN_LIMIT).map((run) => {
+                      const mission = taskById.get(run.task_id);
+                      return (
+                        <RunRow
+                          key={run.id}
+                          run={run}
+                          task={mission ?? null}
+                          agentName={
+                            agentsById.get(mission?.agent_id)?.name ?? null
+                          }
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="No runs in flight"
+                    text="Runs appear here while Hermes is planning or executing a mission."
+                  />
+                )}
+              </Section>
+
+              <Section
+                title="Recent events"
+                action={
+                  eventsResult.events.length > 0 ? (
+                    <Link className="forge-section-link" href="/activity">
+                      Full history
+                    </Link>
+                  ) : null
+                }
+              >
+                {eventsResult.events.length > 0 ? (
+                  <div className="forge-pad-top">
+                    <MissionTimeline
+                      events={eventsResult.events}
+                      actorLabels={new Map([[user.id, "You"]])}
+                    />
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="Nothing recorded yet"
+                    text="Mission, run, approval, and tool events are recorded here as your workforce works."
+                  />
+                )}
+              </Section>
+            </div>
           </>
         ) : (
           <EmptyState
             title="No workspace yet"
-            text="Forge shows workspace work once your account belongs to a workspace. The shared agent catalog below is already available."
+            text="Forge shows workspace missions once your account belongs to a workspace. The shared agent catalog below is already available."
           />
         )}
 
-        <div className="forge-grid forge-grid--halves">
-          <Section
-            title="Agents"
-            action={
-              agents.length > 0 ? (
-                <Link className="forge-section-link" href="/agents">
-                  All agents
-                </Link>
-              ) : null
-            }
-          >
-            {departmentGroups.length > 0 ? (
-              <div className="forge-rows">
-                {departmentGroups.map(([department, departmentAgents]) => (
-                  <div key={department}>
-                    <div className="forge-eyebrow forge-dept-label">
-                      {department}
+        <Section
+          title="Agents"
+          action={
+            agents.length > 0 ? (
+              <Link className="forge-section-link" href="/agents">
+                All agents
+              </Link>
+            ) : null
+          }
+        >
+          {departmentGroups.length > 0 ? (
+            <div className="forge-rows">
+              {departmentGroups.map(([department, departmentAgents]) => (
+                <div key={department}>
+                  <div className="forge-eyebrow forge-dept-label">{department}</div>
+                  {departmentAgents.slice(0, AGENTS_PER_DEPARTMENT).map((agent) => (
+                    <AgentLine
+                      key={agent.id}
+                      agent={agent}
+                      tasks={tasksByAgent.get(agent.id) ?? []}
+                      runs={runsByAgent.get(agent.id) ?? []}
+                    />
+                  ))}
+                  {departmentAgents.length > AGENTS_PER_DEPARTMENT ? (
+                    <div className="forge-meta-faint forge-dept-more">
+                      +{departmentAgents.length - AGENTS_PER_DEPARTMENT} more
                     </div>
-                    {departmentAgents
-                      .slice(0, AGENTS_PER_DEPARTMENT)
-                      .map((agent) => (
-                        <AgentLine
-                          key={agent.id}
-                          agent={agent}
-                          tasks={tasksByAgent.get(agent.id) ?? []}
-                          runs={runsByAgent.get(agent.id) ?? []}
-                        />
-                      ))}
-                    {departmentAgents.length > AGENTS_PER_DEPARTMENT ? (
-                      <div className="forge-meta-faint forge-dept-more">
-                        +{departmentAgents.length - AGENTS_PER_DEPARTMENT} more
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState
-                title="No agents yet"
-                text="Agents defined in Forge appear here, grouped by department."
-              />
-            )}
-          </Section>
-
-          <Section
-            title="Recent activity"
-            action={
-              activityResult.events.length > 0 ? (
-                <Link className="forge-section-link" href="/activity">
-                  Full history
-                </Link>
-              ) : null
-            }
-          >
-            {activityResult.events.length > 0 ? (
-              <div className="forge-pad-top">
-                <ActivityTimeline
-                  events={activityResult.events}
-                  taskTitles={taskTitles}
-                  actorLabels={new Map([[user.id, "You"]])}
-                />
-              </div>
-            ) : (
-              <EmptyState
-                title="Nothing recorded yet"
-                text="Approvals, runs, and decisions appear here as your workforce starts working."
-              />
-            )}
-          </Section>
-        </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No agents yet"
+              text="Agents defined in Forge appear here, grouped by department."
+            />
+          )}
+        </Section>
       </div>
     </>
-  );
-}
-
-function isFailedRun(run) {
-  return ["failed", "error"].includes(String(run.status ?? "").toLowerCase());
-}
-
-function isHealthyConnection(status) {
-  return ["active", "connected", "healthy"].includes(
-    String(status ?? "").toLowerCase()
   );
 }
 

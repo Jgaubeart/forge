@@ -756,6 +756,28 @@ a.forge-row:hover {
   margin-left: auto;
 }
 
+.forge-row--child {
+  margin-left: 22px;
+  border-left: 2px solid var(--forge-border);
+  border-radius: 0 var(--forge-radius-sm) var(--forge-radius-sm) 0;
+}
+
+.forge-cancel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.forge-cancel .forge-input {
+  min-width: 220px;
+  flex: 1;
+}
+
+.forge-cancel .forge-notice {
+  flex-basis: 100%;
+}
+
 .forge-kv {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);

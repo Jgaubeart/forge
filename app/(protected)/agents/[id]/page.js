@@ -75,6 +75,24 @@ export default async function AgentDetailPage({ params }) {
             ) : (
               <p className="forge-meta">No instructions recorded for this agent.</p>
             )}
+            <dl className="forge-kv forge-pad-top">
+              <div className="forge-kv-row">
+                <dt>Department</dt>
+                <dd>{agent.department?.name ?? "Unassigned"}</dd>
+              </div>
+              <div className="forge-kv-row">
+                <dt>Delegation</dt>
+                <dd>
+                  {agent.delegationEnabled
+                    ? "Hermes may delegate to subagents"
+                    : "Delegation not permitted"}
+                </dd>
+              </div>
+              <div className="forge-kv-row">
+                <dt>Active</dt>
+                <dd>{agent.is_active ? "Yes" : "No"}</dd>
+              </div>
+            </dl>
           </Section>
 
           <Section title="Capabilities" meta={agentResult.capabilities.length}>
@@ -109,12 +127,12 @@ export default async function AgentDetailPage({ params }) {
         </div>
 
         <Section
-          title="Recent tasks"
+          title="Recent missions"
           meta={tasksResult.tasks.length}
           action={
             tasksResult.tasks.length > 0 ? (
               <Link className="forge-section-link" href="/tasks">
-                All tasks
+                All missions
               </Link>
             ) : null
           }
@@ -133,8 +151,8 @@ export default async function AgentDetailPage({ params }) {
           ) : (
             <EmptyState
               glyph="spark"
-              title="No tasks yet"
-              text="Work assigned to this agent appears here with its status."
+              title="No missions yet"
+              text="Missions assigned to this agent appear here with their state and current step."
             />
           )}
         </Section>
@@ -183,10 +201,10 @@ export default async function AgentDetailPage({ params }) {
               })}
             </div>
           ) : (
-            <EmptyState
-              glyph="spark"
-              title="No runs yet"
-              text="Hermes execution history for this agent appears here."
+              <EmptyState
+                glyph="spark"
+                title="No runs yet"
+              text="Hermes execution history for this agent appears here, including delegated subagent runs."
             />
           )}
         </Section>
@@ -208,16 +226,17 @@ export default async function AgentDetailPage({ params }) {
               ))}
             </div>
           ) : (
-            <EmptyState
+          <EmptyState
               glyph="plug"
               title="No connections available"
               text="Connect services to give this agent access to the data it needs."
-            />
+          />
           )}
 
           <p className="forge-meta-faint forge-pad-top">
-            Per-agent connection grants are not modeled yet. Forge supplies only
-            the connections the signed-in person is authorized to use.
+            This agent never receives credentials. It requests actions through the
+            Forge tool gateway, which resolves the connection with the signed-in
+            person&apos;s own permissions before anything is executed.
           </p>
         </Section>
       </div>

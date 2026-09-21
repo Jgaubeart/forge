@@ -6,6 +6,7 @@ import {
   Section,
 } from "@/components/forge/ui";
 import { requireForgeContext } from "@/lib/forge/context";
+import { actorLabel } from "@/lib/forge/format";
 import { listAgents, loadWork } from "@/lib/forge/queries";
 
 const WORK_WINDOW = 200;
@@ -37,6 +38,8 @@ export default async function ApprovalsPage() {
     return {
       agentName: agentsById.get(task?.agent_id)?.name ?? null,
       taskTitle: task ? task.title : null,
+      requesterLabel: actorLabel(approval.requested_by, context.user.id),
+      stagedArguments: approval.payloadSummary ?? [],
     };
   };
 
@@ -45,7 +48,7 @@ export default async function ApprovalsPage() {
       <PageHeader
         eyebrow="Operations"
         title="Approvals"
-        subtitle="Decisions that require a human. Everything here is read-only until the approval execution layer is implemented."
+        subtitle="Staged actions waiting for a human decision. The action that runs is the exact snapshot reviewed here, and execution refuses if it changes."
         meta={
           pending.length > 0
             ? `${pending.length} awaiting a decision`
@@ -92,8 +95,9 @@ export default async function ApprovalsPage() {
         ) : null}
 
         <p className="forge-meta-faint">
-          Approving or denying is not wired up yet. Until it is, decisions stay
-          read-only here and no action is executed on your behalf.
+          Deciding is not wired to the UI yet, so this view stays read-only: no
+          action is executed on your behalf from this screen. The runtime already
+          enforces the staged-argument rule for approved actions.
         </p>
       </div>
     </>

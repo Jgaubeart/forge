@@ -62,6 +62,7 @@ export default async function AgentsPage() {
                     <th>Status</th>
                     <th>Capabilities</th>
                     <th>Max action</th>
+                    <th>Delegation</th>
                     <th>Active</th>
                   </tr>
                 </thead>
@@ -106,6 +107,9 @@ export default async function AgentsPage() {
                         </td>
                         <td>
                           <ActionLevel level={agent.maxActionLevel} />
+                        </td>
+                        <td className="forge-cell-muted">
+                          {agent.delegationEnabled ? "Allowed" : "Not allowed"}
                         </td>
                         <td className="forge-cell-muted">
                           {agent.is_active ? "Yes" : "No"}
