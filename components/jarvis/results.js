@@ -3,12 +3,22 @@
 //
 // Each mission kind has its own presentation, and none of them dump raw JSON.
 
+import { MALFORMED_RESULT } from "@/lib/forge/missions";
 import { AgentDot } from "./agent-sigil";
 import { agentBySlug } from "@/lib/forge/agents";
 
-export function MissionResult({ mission }) {
-  const result = mission.result;
-  if (!result) return null;
+// Renders validated result contracts produced by `lib/forge/missions`. The
+// renderer never infers or repairs fields: validation happens in the domain
+// layer, and anything that failed validation arrives as MALFORMED_RESULT.
+export function MissionResult({ result }) {
+  if (!result || result.kind === "malformed") {
+    return (
+      <div className="jv-notice">
+        <span className="jv-mono">unreadable</span>
+        {MALFORMED_RESULT.note}
+      </div>
+    );
+  }
 
   if (result.kind === "fleet") {
     return (
@@ -103,7 +113,7 @@ export function MissionResult({ mission }) {
           <div className="jv-post" key={post.platform}>
             <div className="p">
               <span>{post.platform}</span>
-              <span className="jv-mono">draft</span>
+              <span className="jv-mono">{post.state ?? "draft"}</span>
             </div>
             <div className="tx">{post.text}</div>
           </div>
@@ -115,11 +125,15 @@ export function MissionResult({ mission }) {
   if (result.kind === "haters") {
     return (
       <div className="jv-result">
+        {result.read ? <p className="lead">{result.read}</p> : null}
         {(result.items ?? []).map((item) => (
           <div className="jv-comment" key={item.comment_id ?? item.comment}>
             <div className="au">
               {item.author}
               {item.likes ? ` · ${item.likes} likes` : ""}
+              {item.replyState && item.replyState !== "draft" ? (
+                <span className="jv-mono"> · {item.replyState}</span>
+              ) : null}
             </div>
             <div className="cm">{item.comment}</div>
             <div className="rp">{item.reply}</div>
@@ -129,12 +143,18 @@ export function MissionResult({ mission }) {
     );
   }
 
-  if (result.kind === "buildapp" || result.kind === "artifact") {
+  if (result.kind === "build") {
     return (
       <div className="jv-result">
-        <p className="lead">{result.note ?? result.summary}</p>
+        <p className="lead">{result.summary}</p>
+        {result.note && result.note !== result.summary ? (
+          <p className="prose">{result.note}</p>
+        ) : null}
+        {result.artifact?.content ? (
+          <p className="prose">{result.artifact.content}</p>
+        ) : null}
         {result.files?.length ? (
-          <div className="m jv-mono">artifact: {result.files.join(", ")}</div>
+          <div className="jv-mono">artifact: {result.files.join(", ")}</div>
         ) : null}
       </div>
     );

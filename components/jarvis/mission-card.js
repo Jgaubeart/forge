@@ -4,51 +4,45 @@ import { useState } from "react";
 
 import { AgentDot, AgentFeedName } from "./agent-sigil";
 import { MissionResult, WorkerRow } from "./results";
-import { agentBySlug } from "@/lib/forge/agents";
+import { clockOf, expiryWord, feedLine, ledState, stageChips, statusWord } from "./mission-view";
+import { APPROVAL_STATE, actionLanguage } from "@/lib/forge/missions";
 
-// Mission card, ported from the reference mission dock (.jm-card): icon + kind
-// title, status LED, agent-coloured event feed, stage chips, inline confirm
-// controls, and the result inline in the card.
+// Mission card, ported from the reference dock (.jm-card): icon and kind title,
+// status LED, agent-coloured feed, stage chips, inline confirmation, and the
+// result inside the card.
 //
-// In this phase the confirm buttons only change local fixture state. Nothing
-// leaves the browser, and the card says so.
-const LED = {
-  running: "run",
-  awaiting_confirm: "wait",
-  done: "done",
-  error: "error",
-  cancelled: "idle",
-};
-
+// The card renders a validated domain mission. In this phase the confirm buttons
+// only change local state — no runtime, no service, and the card says so.
 const FEED_LIMIT = 8;
 
-export function MissionCard({ mission, expanded = false }) {
-  const [approvalState, setApprovalState] = useState(mission.approval?.state ?? null);
+export function MissionCard({ mission }) {
+  const [approval, setApproval] = useState(mission.approval ?? null);
   const [showAll, setShowAll] = useState(false);
-  const [cancelled, setCancelled] = useState(mission.status === "cancelled");
+  const [stopped, setStopped] = useState(mission.status === "cancelled");
 
-  const status = cancelled ? "cancelled" : mission.status;
+  const status = stopped ? "cancelled" : mission.status;
   const feed = showAll ? mission.events : mission.events.slice(-FEED_LIMIT);
-  const hasResult = Boolean(mission.result);
-  const lead = agentBySlug(mission.leadSlug);
+  const chips = stageChips(mission);
+  const approvalLine = approval ? actionLanguage({ state: approval.state }) : null;
 
   return (
     <article className="jv-mission" data-status={status}>
       <header className="jv-mission-head">
         <span className="ic" aria-hidden="true">
-          {mission.kind.icon}
+          {mission.icon}
         </span>
         <span className="jv-mission-title">{mission.title}</span>
-        <span className="jv-led" data-state={LED[status] ?? "run"} />
+        <span className="jv-led" data-state={ledState(status)} />
       </header>
 
       <div className="jv-mission-meta">
-        <span>{mission.kind.name}</span>
+        <span>{mission.kindTitle}</span>
         <span>
           <AgentDot slug={mission.leadSlug} live={status === "running"} />
-          {lead?.name ?? mission.leadSlug}
+          {mission.leadName}
         </span>
-        <span>{mission.statusLabel}</span>
+        <span>{statusWord(status)}</span>
+        {mission.currentStage ? <span>stage: {mission.currentStage.toLowerCase()}</span> : null}
       </div>
 
       {mission.brief ? <p className="jv-mission-brief">“{mission.brief}”</p> : null}
@@ -61,32 +55,33 @@ export function MissionCard({ mission, expanded = false }) {
         </div>
       ) : null}
 
-      {mission.stages?.length ? (
+      {chips.length > 0 ? (
         <div className="jv-stages">
-          {mission.stages.map((stage) => (
-            <span key={stage} className={mission.reached.includes(stage) ? "on" : undefined}>
-              {stage}
+          {chips.map((chip) => (
+            <span key={chip.stage} className={chip.on ? "on" : undefined}>
+              {chip.stage}
             </span>
           ))}
         </div>
       ) : null}
 
       <ol className="jv-feed">
-        {feed.map((event) => (
-          <li key={`${event.ts}-${event.label}`}>
-            <AgentFeedName slug={event.agentSlug} />
-            <span className={event.kind === "error" ? "lbl err" : "lbl"}>{event.label}</span>
-            <span className="ts">{event.ts.slice(11, 16)}</span>
-          </li>
-        ))}
+        {feed.map((event) => {
+          const line = feedLine(event, mission);
+          return (
+            <li key={event.id}>
+              <AgentFeedName slug={line.agentSlug} />
+              <span className={line.tone === "err" ? "lbl err" : "lbl"}>{line.text}</span>
+              <span className="ts">{clockOf(line.at)}</span>
+            </li>
+          );
+        })}
       </ol>
 
       {mission.events.length > FEED_LIMIT && !showAll ? (
-        <div className="jv-mission-foot" style={{ borderTop: "none", paddingTop: 0 }}>
-          <button className="jv-btn ghost" type="button" onClick={() => setShowAll(true)}>
-            Show full feed ({mission.events.length})
-          </button>
-        </div>
+        <button className="jv-btn ghost" type="button" onClick={() => setShowAll(true)}>
+          Show full feed ({mission.events.length})
+        </button>
       ) : null}
 
       {mission.error ? (
@@ -95,25 +90,29 @@ export function MissionCard({ mission, expanded = false }) {
         </p>
       ) : null}
 
-      {mission.approval && approvalState === "pending" ? (
+      {approval && approval.state === APPROVAL_STATE.pending ? (
         <div className="jv-confirm">
           <div className="jv-confirm-head">
-            <span>Needs your word · {mission.approval.tool}</span>
-            <span>expires {mission.approval.expires}</span>
+            <span>Needs your word · {approval.tool}</span>
+            <span>expires {expiryWord(approval.expiresAt)}</span>
           </div>
-          <div className="jv-confirm-args">{mission.approval.args.join("\n")}</div>
+          <div className="jv-confirm-args">
+            {Object.entries(approval.args)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join("\n")}
+          </div>
           <div className="jv-confirm-actions">
             <button
               className="jv-btn"
               type="button"
-              onClick={() => setApprovalState("approved")}
+              onClick={() => setApproval({ ...approval, state: APPROVAL_STATE.approved })}
             >
               Do it
             </button>
             <button
               className="jv-btn ghost"
               type="button"
-              onClick={() => setApprovalState("declined")}
+              onClick={() => setApproval({ ...approval, state: APPROVAL_STATE.denied })}
             >
               No, cancel it
             </button>
@@ -125,48 +124,47 @@ export function MissionCard({ mission, expanded = false }) {
         </div>
       ) : null}
 
-      {approvalState === "approved" ? (
+      {approvalLine && approval.state !== APPROVAL_STATE.pending ? (
         <div className="jv-notice" style={{ marginTop: 9 }}>
-          Approved in the fixture. Nothing was sent, and no receipt was written.
+          {approvalLine.text}
+          {approval.state === APPROVAL_STATE.approved
+            ? " Nothing was sent, and no receipt was written."
+            : ""}
         </div>
       ) : null}
 
-      {approvalState === "declined" ? (
+      {stopped && mission.status !== "cancelled" ? (
         <div className="jv-notice" style={{ marginTop: 9 }}>
-          Declined. Nothing ran.
+          Stop requested in the fixture. Prior events and any partial result stay
+          on the mission, and the runtime stop call arrives in a later phase.
         </div>
       ) : null}
 
-      {cancelled && mission.status !== "cancelled" ? (
+      {mission.status === "cancelled" ? (
         <div className="jv-notice" style={{ marginTop: 9 }}>
-          Stop requested in the fixture. The mission would be stopped at the
-          runtime in a later phase.
+          Cancelled. History and partial work are preserved.
         </div>
       ) : null}
 
-      {hasResult && (expanded || mission.status === "done") ? (
-        <div className="jv-receipt">
-          <div className="jv-eyebrow" style={{ marginBottom: 8 }}>
-            Result
-          </div>
-          <MissionResult mission={mission} />
-        </div>
+      {mission.result ? (
+        <details className="jv-receipt" open={mission.status === "completed"}>
+          <summary>Result</summary>
+          <MissionResult result={mission.result} />
+        </details>
       ) : null}
 
       <footer className="jv-mission-foot">
-        <span className="jv-mono">{mission.kind.key}</span>
-        <span style={{ display: "flex", gap: 6 }}>
-          {mission.cancelable && !cancelled ? (
-            <button
-              className="jv-rbtn"
-              type="button"
-              title="Stop this mission"
-              onClick={() => setCancelled(true)}
-            >
-              ■
-            </button>
-          ) : null}
-        </span>
+        <span className="jv-mono">{mission.kind}</span>
+        {mission.cancellationAllowed && !stopped && status !== "completed" ? (
+          <button
+            className="jv-rbtn"
+            type="button"
+            title="Stop this mission"
+            onClick={() => setStopped(true)}
+          >
+            ■
+          </button>
+        ) : null}
       </footer>
     </article>
   );

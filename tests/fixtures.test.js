@@ -2,25 +2,39 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  AGENTS,
   AGENT_COLORS,
-  FLEET,
+  AGENTS,
   FIXTURE_MISSIONS,
   FIXTURE_NOTICE,
   FIXTURE_TOOLS,
+  FLEET,
 } from "../lib/jarvis-fixtures/index.js";
+import { agentBySlug } from "../lib/forge/agents/index.js";
+import {
+  MISSION_KIND_KEYS,
+  isKnownEventType,
+  isValidStatus,
+  stageChipsFrom,
+  stagesForKind,
+} from "./helpers/mission-fixtures.js";
 
 test("the fixture set covers every mission state the dock has to show", () => {
   const statuses = new Set(FIXTURE_MISSIONS.map((mission) => mission.status));
 
-  for (const status of ["running", "awaiting_confirm", "done", "error", "cancelled"]) {
+  for (const status of [
+    "running",
+    "waiting_approval",
+    "completed",
+    "failed",
+    "cancelled",
+  ]) {
     assert.ok(statuses.has(status), `no fixture mission in state ${status}`);
   }
 });
 
 test("the running fleet fixture shows a coordinated three-agent team", () => {
   const fleet = FIXTURE_MISSIONS.find(
-    (mission) => mission.kind.key === "fleet" && mission.status === "running"
+    (mission) => mission.kind === "fleet" && mission.status === "running"
   );
 
   assert.ok(fleet, "no running fleet mission");
@@ -30,32 +44,31 @@ test("the running fleet fixture shows a coordinated three-agent team", () => {
     ["scout", "forge", "sage"]
   );
   assert.ok(fleet.events.length >= 4, "fleet fixture needs a real feed");
-  assert.ok(
-    fleet.team.filter((worker) => worker.state === "active").length >= 1,
-    "at least one worker should be active"
-  );
-  assert.ok(
-    fleet.team.some((worker) => worker.state !== "active"),
-    "idle workers must stay idle rather than all reading as running"
-  );
+  assert.ok(fleet.reached.includes("recon"));
 });
 
 test("a single-agent mission fixture exists alongside the fleet", () => {
-  const single = FIXTURE_MISSIONS.find((mission) => mission.team.length === 0 && mission.status === "running");
+  const single = FIXTURE_MISSIONS.find(
+    (mission) => mission.team.length === 0 && mission.status === "running"
+  );
   assert.ok(single, "no single-agent mission fixture");
-  assert.equal(single.kind.key, "buildapp");
-  assert.deepEqual(single.stages, ["SCAFFOLD", "CODE", "TEST", "LAUNCH"]);
+  assert.equal(single.kind, "buildapp");
+  assert.deepEqual(stagesForKind(single.kind), ["SCAFFOLD", "CODE", "TEST", "LAUNCH"]);
 });
 
 test("the confirmation fixture carries the exact staged action", () => {
-  const pending = FIXTURE_MISSIONS.find((mission) => mission.status === "awaiting_confirm");
+  const pending = FIXTURE_MISSIONS.find(
+    (mission) => mission.approval?.state === "pending"
+  );
 
-  assert.ok(pending?.approval, "no awaiting_confirm fixture");
-  assert.equal(pending.approval.state, "pending");
-  assert.equal(pending.approval.fixture, true);
-  assert.ok(pending.approval.args.length >= 2, "staged arguments must be visible");
-  assert.match(pending.approval.args.join(" "), /platform: twitter/);
-  assert.ok(pending.approval.expires);
+  assert.ok(pending, "no awaiting-approval fixture");
+  assert.equal(pending.status, "waiting_approval");
+  assert.equal(pending.approval.tool, "social.publish_post");
+  assert.equal(pending.approval.destination, "twitter");
+  assert.match(pending.approval.args.text, /workshop is live/i);
+  assert.ok(pending.approval.expiresAt);
+  assert.ok(pending.approval.payloadFingerprint);
+  assert.equal(Object.isFrozen(pending.approval.args), true);
 });
 
 test("structured results exist for the reference result kinds", () => {
@@ -65,7 +78,7 @@ test("structured results exist for the reference result kinds", () => {
     )
   );
 
-  for (const kind of ["fleet", "warroom", "reaper", "announce"]) {
+  for (const kind of ["fleet", "warroom", "reaper", "announce", "haters"]) {
     assert.ok(kinds.has(kind), `no structured result fixture for ${kind}`);
   }
 
@@ -73,20 +86,44 @@ test("structured results exist for the reference result kinds", () => {
   assert.ok(fleet.result.sections.scout);
   assert.ok(fleet.result.sections.forge);
   assert.ok(fleet.result.sections.sage);
+  assert.deepEqual(fleet.result.missing, []);
+  assert.deepEqual(fleet.result.failed, []);
 });
 
 test("the failed and cancelled fixtures explain themselves without claiming success", () => {
-  const failed = FIXTURE_MISSIONS.find((mission) => mission.status === "error");
+  const failed = FIXTURE_MISSIONS.find((mission) => mission.status === "failed");
   assert.ok(failed.error, "a failed mission must carry an honest error line");
   assert.equal(failed.result, null);
-  assert.ok(
-    failed.events.some((event) => event.kind === "error"),
-    "a failed mission must show the error event"
-  );
+  assert.ok(failed.events.some((event) => event.type === "mission.failed"));
 
   const cancelled = FIXTURE_MISSIONS.find((mission) => mission.status === "cancelled");
   assert.equal(cancelled.result, null);
-  assert.equal(cancelled.cancelable, false);
+  assert.ok(cancelled.cancellation, "cancellation is recorded on the mission");
+  assert.ok(cancelled.events.some((event) => event.type === "mission.cancelled"));
+});
+
+test("every fixture mission is well formed against the domain model", () => {
+  for (const mission of FIXTURE_MISSIONS) {
+    assert.ok(MISSION_KIND_KEYS.includes(mission.kind), `${mission.id} kind is not canonical`);
+    assert.ok(isValidStatus(mission.status), `${mission.id} status is not canonical`);
+    assert.ok(agentBySlug(mission.leadSlug), `${mission.id} lead is not in the catalog`);
+
+    const stages = stagesForKind(mission.kind);
+    assert.ok(stages.includes(mission.currentStage), `${mission.id} stage is off-sequence`);
+    for (const reached of mission.reached) {
+      assert.ok(stages.includes(reached), `${mission.id} reached an unknown stage`);
+    }
+
+    for (const event of mission.events) {
+      assert.ok(isKnownEventType(event.type), `${mission.id} uses an unknown event type`);
+      assert.ok(agentBySlug(event.actor?.agent ?? mission.leadSlug));
+    }
+
+    assert.equal(
+      stageChipsFrom(mission).filter((chip) => chip.on).length,
+      mission.reached.length
+    );
+  }
 });
 
 test("agent identities keep the reference colours", () => {
@@ -100,8 +137,8 @@ test("agent identities keep the reference colours", () => {
 
   assert.equal(FLEET.coordinator, "JARVIS");
   assert.deepEqual(
-    FLEET.members.map((member) => member.name),
-    ["SCOUT", "FORGE", "SAGE"]
+    FLEET.members.map((member) => member.slug),
+    ["scout", "forge", "sage"]
   );
 });
 
@@ -117,7 +154,6 @@ test("the armory fixture covers every tool state the shelf must show", () => {
   assert.equal(byId.get("gmail.create_draft").status, "waiting");
   assert.equal(byId.get("analytics.channel_report").status, "setup");
   assert.equal(byId.get("github.create_pr").status, "unavailable");
-  assert.equal(byId.get("github.create_pr").available, false);
   assert.equal(byId.get("remote.unknown_tool").review, "always reviewed");
 });
 

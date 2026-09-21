@@ -76,12 +76,63 @@ slugs rather than restating identity. The `/agents` surface renders departments,
 capability state, fleet membership, and routing, with full system instructions
 available only behind a disclosure.
 
-## Phase 4 — mission semantics and structured results
+## Phase 4 — mission semantics and structured results (complete)
 
-Port mission kinds and their result shapes: research memo, build artifact, fleet
-combined result, analytics report, social drafts, comment reply set, subscription
-audit. Results render per kind; raw JSON is never shown where the reference has a
-result UI.
+The mission model lives in `lib/forge/missions` and is runtime-neutral: no
+database, no network, no Hermes. Fixtures and the UI are generated from it, so a
+mission can only exist in a shape the domain understands.
+
+**Mission kinds** — `kinds.js` holds the reference families with their icons and
+titles (THE FLEET ⚔️, BUILD-ME-AN-APP 🛠️, SUBSCRIPTION REAPER 💰, CHANNEL WAR ROOM
+📊, ANNOUNCE-IT-EVERYWHERE 📣, READ-THE-HATERS 🔥) plus a general coordination
+kind. Each declares its description, lead agent and fleet (resolved from the
+Phase 3 catalog, never restated), expected stages, whether confirmation is part of
+the workflow, brief requirements, cancellation, and its result type.
+
+**Lifecycle** — `lifecycle.js` defines statuses `queued → planning → running →
+waiting_approval → completed | failed | cancelled` with explicit transitions.
+`canTransitionMission`, `transitionMission`, `isTerminalMission`, and
+`isActiveMission` refuse nonsense such as `completed → running`; the reference's
+own names (`awaiting_confirm`, `done`, `error`) still resolve.
+
+**Status vs stage** — status is the mission's life; stage is the work happening
+now, and every kind has its own sequence. The build kind keeps the reference
+chips (SCAFFOLD, CODE, TEST, LAUNCH); scout-derived work uses recon → draft →
+critique → assemble; gated kinds read inspect → ledger → confirm → execute. Stages
+advance one step at a time and cannot be skipped.
+
+**Events** — `events.js` defines the canonical vocabulary (mission.created,
+mission.stage_changed, agent.assigned/started/completed, tool.requested/completed,
+approval.requested/approved/denied/expired, result.updated, mission.completed/
+failed/cancelled), maps the reference's spawn/stage/tool/done/error onto it,
+sanitises metadata to primitives, and guarantees unique ids per mission.
+`describeEvent` and `toolLabel` produce deterministic operator language — no
+model is involved.
+
+**Approvals** — an approval is a lifecycle boundary, not a card: the mission
+parks in `waiting_approval` with a staged action whose arguments are frozen and
+fingerprinted. States are pending, approved, denied, expired, consumed; an
+approval is single-use, cannot be approved after expiry, and cannot be consumed
+unless approved. Deciding resumes the mission; nothing external runs.
+
+**Cancellation** — allowed only while a mission is active, terminal afterwards,
+and it preserves every prior event and any partial result. Nothing is deleted.
+
+**Result contracts** — `results.js` validates one contract per kind: fleet
+worker sections, build artifact, reaper ledger (with derived monthly total),
+war-room stats, per-platform drafts, and comment reply sets. Announce and haters
+results can never claim more than `draft` without a provider receipt. Malformed
+results fail validation and render a safe fallback instead of crashing.
+`fleet-composition.js` assembles worker output with missing and failed workers
+left visible — nothing is fabricated or silently substituted.
+
+**Honest language** — `language.js` encodes the receipt rule: "Draft prepared"
+and "Awaiting confirmation" are always available, while "Sent", "Published", or
+"Cancelled" require a receipt id, and `assertHonestClaim` refuses the claim
+otherwise.
+
+The ported UI renders these validated domain objects — History and Mission Bay
+read the canonical event stream, and the result renderers contain no inference.
 
 ## Phase 5 — Supabase persistence and first-workspace onboarding
 

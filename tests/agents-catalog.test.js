@@ -187,7 +187,6 @@ test("fixtures reference catalog slugs instead of duplicating agent metadata", a
 
   // Mission fixtures resolve their lead, team, and feed actors through slugs.
   const missions = read("lib/jarvis-fixtures/missions.js");
-  assert.match(missions, /leadSlug:/);
   assert.match(missions, /agentSlug:/);
   assert.equal(/lead:\s*"/.test(missions), false, "fixtures still hardcode a lead name");
   assert.equal(/\{ name: "SCOUT"/.test(missions), false, "fixtures still hardcode worker names");
@@ -199,7 +198,10 @@ test("fixtures reference catalog slugs instead of duplicating agent metadata", a
       assert.ok(agentBySlug(worker.slug), `${mission.id} has an unknown worker slug`);
     }
     for (const event of mission.events) {
-      assert.ok(agentBySlug(event.agentSlug), `${mission.id} has an unknown event agent`);
+      assert.ok(
+        agentBySlug(event.actor?.agent ?? mission.leadSlug),
+        `${mission.id} has an unknown event agent`
+      );
     }
   }
 });

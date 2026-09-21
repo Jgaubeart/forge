@@ -1,5 +1,6 @@
 import { AgentFeedName } from "@/components/jarvis/agent-sigil";
 import { MissionResult } from "@/components/jarvis/results";
+import { clockOf, feedLine, statusWord } from "@/components/jarvis/mission-view";
 import {
   JarvisEmpty,
   JarvisFixtureNotice,
@@ -7,13 +8,12 @@ import {
   JarvisSection,
 } from "@/components/jarvis/shell";
 import { FIXTURE_MISSIONS } from "@/lib/jarvis-fixtures";
+import { isTerminalMission } from "@/lib/forge/missions";
 
 // History: the same mission feed, in chronological order, with the results that
 // were produced. Fixture data in this phase.
 export default function HistoryPage() {
-  const closed = FIXTURE_MISSIONS.filter((mission) =>
-    ["done", "error", "cancelled"].includes(mission.status)
-  );
+  const closed = FIXTURE_MISSIONS.filter((mission) => isTerminalMission(mission.status));
   const eventCount = FIXTURE_MISSIONS.reduce(
     (total, mission) => total + mission.events.length,
     0
@@ -36,25 +36,28 @@ export default function HistoryPage() {
             <JarvisSection
               key={mission.id}
               title={mission.title}
-              meta={`${mission.statusLabel} · ${mission.events.length} events`}
+              meta={`${statusWord(mission.status)} · ${mission.events.length} events`}
             >
               <ol className="jv-feed" style={{ maxHeight: "none" }}>
-                {mission.events.map((event) => (
-                  <li key={`${event.ts}-${event.label}`}>
-                    <AgentFeedName slug={event.agentSlug} />
-                    <span className={event.kind === "error" ? "lbl err" : "lbl"}>
-                      {event.label}
-                    </span>
-                    <span className="ts">{event.ts.slice(11, 16)}</span>
-                  </li>
-                ))}
+                {mission.events.map((event) => {
+                  const line = feedLine(event, mission);
+                  return (
+                    <li key={event.id}>
+                      <AgentFeedName slug={line.agentSlug} />
+                      <span className={line.tone === "err" ? "lbl err" : "lbl"}>
+                        {line.text}
+                      </span>
+                      <span className="ts">{clockOf(line.at)}</span>
+                    </li>
+                  );
+                })}
               </ol>
               {mission.result ? (
                 <div className="jv-receipt" open>
                   <div className="jv-eyebrow" style={{ marginBottom: 8 }}>
                     Result
                   </div>
-                  <MissionResult mission={mission} />
+                  <MissionResult result={mission.result} />
                 </div>
               ) : null}
             </JarvisSection>

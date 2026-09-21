@@ -8,28 +8,27 @@ import {
   JarvisSection,
 } from "@/components/jarvis/shell";
 import { FIXTURE_MISSIONS, FLEET, fixtureKindKeys } from "@/lib/jarvis-fixtures";
-import { MISSION_ROUTES, agentBySlug } from "@/lib/forge/agents";
+import { MISSION_KINDS, isActiveMission, isTerminalMission } from "@/lib/forge/missions";
+import { clockOf, expiryWord, feedLine } from "@/components/jarvis/mission-view";
 
 // Mission Bay, ported from the reference viewer: the mission dock is the centre
 // of the screen, the Fleet reads as a team, approvals live inside the mission
 // that staged them, and the command bar sits where the reference HUD does.
-// Mission kinds come from the routing metadata rather than a local list.
-const KINDS = MISSION_ROUTES.map((route) => ({
-  key: route.kind,
-  icon: route.icon,
-  name: route.label,
-  needsBrief: route.needsBrief,
+// Mission kinds come from the canonical mission catalog.
+const KINDS = MISSION_KINDS.map((kind) => ({
+  key: kind.kind,
+  icon: kind.icon,
+  name: kind.title,
+  needsBrief: kind.brief.required,
 }));
 
 export default function MissionBayPage() {
-  const active = FIXTURE_MISSIONS.filter((mission) =>
-    ["running", "awaiting_confirm"].includes(mission.status)
+  const active = FIXTURE_MISSIONS.filter(
+    (mission) => isActiveMission(mission.status) && !isTerminalMission(mission.status)
   );
-  const closed = FIXTURE_MISSIONS.filter((mission) =>
-    ["done", "error", "cancelled"].includes(mission.status)
-  );
+  const closed = FIXTURE_MISSIONS.filter((mission) => isTerminalMission(mission.status));
   const awaiting = FIXTURE_MISSIONS.filter(
-    (mission) => mission.status === "awaiting_confirm"
+    (mission) => mission.approval?.state === "pending"
   );
 
   return (
@@ -108,7 +107,7 @@ export default function MissionBayPage() {
                       <span className="t">{mission.approval?.tool}</span>
                       <span className="m">
                         <span>{mission.approval?.capability}</span>
-                        <span>expires {mission.approval?.expires}</span>
+                        <span>expires {expiryWord(mission.approval?.expiresAt)}</span>
                       </span>
                     </span>
                   </div>
@@ -121,16 +120,21 @@ export default function MissionBayPage() {
             <JarvisSection title="Recent mission events">
               <ol className="jv-feed" style={{ maxHeight: 220 }}>
                 {FIXTURE_MISSIONS.flatMap((mission) =>
-                  mission.events.slice(-3).map((event) => ({ ...event, id: mission.id }))
+                  mission.events.slice(-3).map((event) => ({
+                    ...feedLine(event, mission),
+                    missionId: mission.id,
+                  }))
                 )
                   .slice(-12)
                   .map((event) => (
-                    <li key={`${event.id}-${event.ts}-${event.label}`}>
+                    <li key={`${event.missionId}-${event.id}`}>
                       <b style={{ color: "#a7c4b6" }}>
-                        {agentBySlug(event.agentSlug)?.name ?? event.agentSlug}
+                        {String(event.agentSlug).toUpperCase()}
                       </b>
-                      <span className="lbl">{event.label}</span>
-                      <span className="ts">{event.ts.slice(11, 16)}</span>
+                      <span className={event.tone === "err" ? "lbl err" : "lbl"}>
+                        {event.text}
+                      </span>
+                      <span className="ts">{clockOf(event.at)}</span>
                     </li>
                   ))}
               </ol>
